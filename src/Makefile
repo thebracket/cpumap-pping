@@ -3,7 +3,6 @@
 TARGET := xdp_pass
 TARGET += xdp_iphash_to_cpu
 TARGET += tc_classify
-TARGET += xdp_iphash_to_cpu_cmdline
 
 CMDLINE_TOOLS := xdp_iphash_to_cpu_cmdline
 
@@ -40,6 +39,7 @@ clean:
 	cd $(LIBBPF_DIR) && $(MAKE) clean
 	cd $(LIBBPF_DIR) && rm -r $(LIBBPF_INSTDIR)
 	rm -f $(TARGET)
+	rm xdp_iphash_to_cpu_cmdline
 	rm -f $(XDP_OBJ)
 	rm -f $(USER_OBJ)
 	rm -f $(COMMON_USER_OBJ)

@@ -10,6 +10,7 @@
 #include <linux/in.h>
 #include <linux/ipv6.h>
 #include <linux/in6.h>
+#include <linux/tcp.h>
 
 #include <stdbool.h>
 
@@ -161,13 +162,306 @@ static __always_inline bool parse_eth(struct ethhdr *eth, void *data_end,
 	return true;
 }
 
+static int parse_tcp_ts(struct tcphdr *tcph, void *data_end, __u32 *tsval,
+						__u32 *tsecr)
+{
+	int len = tcph->doff << 2;
+	void *opt_end = (void *)tcph + len;
+	__u8 *pos = (__u8 *)(tcph + 1); // Current pos in TCP options
+	__u8 i, opt;
+	volatile __u8
+		opt_size; // Seems to ensure it's always read of from stack as u8
+
+	if (tcph + 1 > data_end || len <= sizeof(struct tcphdr))
+		return -1;
+#pragma unroll // temporary solution until we can identify why the non-unrolled loop gets stuck in an infinite loop
+	for (i = 0; i < 10; i++)
+	{
+		if (pos + 1 > opt_end || pos + 1 > data_end)
+			return -1;
+
+		opt = *pos;
+		if (opt == 0) // Reached end of TCP options
+			return -1;
+
+		if (opt == 1)
+		{ // TCP NOP option - advance one byte
+			pos++;
+			continue;
+		}
+
+		// Option > 1, should have option size
+		if (pos + 2 > opt_end || pos + 2 > data_end)
+			return -1;
+		opt_size = *(pos + 1);
+		if (opt_size < 2) // Stop parsing options if opt_size has an invalid value
+			return -1;
+
+		// Option-kind is TCP timestap (yey!)
+		if (opt == 8 && opt_size == 10)
+		{
+			if (pos + 10 > opt_end || pos + 10 > data_end)
+				return -1;
+			*tsval = bpf_ntohl(*(__u32 *)(pos + 2));
+			*tsecr = bpf_ntohl(*(__u32 *)(pos + 6));
+			return 0;
+		}
+
+		// Some other TCP option - advance option-length bytes
+		pos += opt_size;
+	}
+	return -1;
+}
+
+enum __attribute__((__packed__)) flow_event_type
+{
+	FLOW_EVENT_NONE,
+	FLOW_EVENT_OPENING,
+	FLOW_EVENT_CLOSING,
+	FLOW_EVENT_CLOSING_BOTH
+};
+
+enum __attribute__((__packed__)) flow_event_reason
+{
+	EVENT_REASON_NONE,
+	EVENT_REASON_SYN,
+	EVENT_REASON_SYN_ACK,
+	EVENT_REASON_FIRST_OBS_PCKT,
+	EVENT_REASON_FIN,
+	EVENT_REASON_RST,
+	EVENT_REASON_FLOW_TIMEOUT
+};
+
+struct flow_address
+{
+	struct in6_addr ip;
+	__u16 port;
+	__u16 reserved;
+};
+
+struct network_tuple
+{
+	struct flow_address source;
+	struct flow_address dest;
+};
+
+struct packet_id
+{
+	struct network_tuple flow;
+	__u32 identifier;
+};
+
+struct packet_info
+{
+	__u64 time;			  /* Arrival Time (Kernel Time) */
+	struct packet_id pid; // Flow + identifier
+	struct packet_id reply_pid;
+	bool pid_valid;		  /* Can we match against the identifier? */
+	bool reply_pid_valid; /* Can we match against the remote identifier? */
+	enum flow_event_type event_type;
+	enum flow_event_reason event_reason;
+};
+
+enum __attribute__((__packed__)) connection_state
+{
+	CONNECTION_STATE_EMPTY,
+	CONNECTION_STATE_WAITOPEN,
+	CONNECTION_STATE_OPEN,
+	CONNECTION_STATE_CLOSED
+};
+
+struct flow_state
+{
+	__u64 min_rtt;
+	__u64 srtt;
+	__u64 last_timestamp;
+	__u64 sent_pkts;
+	__u64 sent_bytes;
+	__u64 rec_pkts;
+	__u64 rec_bytes;
+	__u32 last_id;
+	__u32 outstanding_timestamps;
+	enum connection_state conn_state;
+	enum flow_event_reason opening_reason;
+	__u8 reserved[6];
+};
+
+struct
+{
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__type(key, struct packet_id);
+	__type(value, __u64);
+	__uint(max_entries, 16384);
+} packet_ts SEC(".maps");
+
+struct
+{
+	__uint(type, BPF_MAP_TYPE_HASH); /* TODO: Make it per-CPU for collision avoidance */
+	__type(key, struct network_tuple);
+	__type(value, struct flow_state); // Was dual flow state
+	__uint(max_entries, 16384);
+} flow_state SEC(".maps");
+
+static __always_inline void tc_pping(void *data, void *data_end, struct tcphdr *tcp,
+									 struct in6_addr *src_ip, struct in6_addr *dst_ip, __u32 tot_len,
+									 __u16 source_port, __u16 dest_port)
+{
+	/* Start by building the packet info parsing structure */
+	struct packet_info p_info = {0};
+	p_info.time = bpf_ktime_get_ns();
+	p_info.pid.flow.source.ip = *src_ip;
+	p_info.pid.flow.source.port = source_port;
+	p_info.pid.flow.dest.ip = *dst_ip;
+	p_info.pid.flow.dest.port = dest_port;
+
+	/* Do not match against packets without a payload */
+	int len = tcp->doff << 2;
+	void *opt_end = (void *)tcp + len;
+	p_info.pid_valid = (opt_end - data > tot_len || tcp->syn);
+
+	/* Do not match on non_ACKs */
+	p_info.reply_pid_valid = tcp->ack;
+
+	if (tcp->rst)
+	{
+		p_info.event_type = FLOW_EVENT_CLOSING_BOTH;
+		p_info.event_reason = EVENT_REASON_RST;
+	}
+	else if (tcp->fin)
+	{
+		p_info.event_type = FLOW_EVENT_CLOSING;
+		p_info.event_reason = EVENT_REASON_FIN;
+	}
+	else if (tcp->ack)
+	{
+		p_info.event_type = FLOW_EVENT_OPENING;
+		p_info.event_reason =
+			tcp->ack ? EVENT_REASON_SYN_ACK : EVENT_REASON_SYN;
+	}
+	else
+	{
+		p_info.event_type = FLOW_EVENT_NONE;
+		p_info.event_reason = EVENT_REASON_NONE;
+	}
+
+	/* Add the timestamp */
+	parse_tcp_ts(tcp, data_end, &p_info.pid.identifier, &p_info.reply_pid.identifier);
+
+	/* We now have a parsed packet to play with
+	 * See if we can find a flowstate, and create one if we can't.
+	 */
+	struct flow_state *state = bpf_map_lookup_elem(&flow_state, &p_info.pid);
+	if (state == NULL && p_info.pid_valid && p_info.event_type != FLOW_EVENT_CLOSING_BOTH && p_info.event_type != FLOW_EVENT_CLOSING)
+	{
+		// Make a new flow entry
+		struct flow_state new_state = {0};
+		new_state.conn_state = CONNECTION_STATE_WAITOPEN;
+		new_state.last_timestamp = p_info.time;
+		new_state.opening_reason = p_info.event_type == FLOW_EVENT_OPENING ? p_info.event_reason : EVENT_REASON_FIRST_OBS_PCKT;
+
+		if (bpf_map_update_elem(&flow_state, &p_info.pid, &new_state, BPF_NOEXIST) == 0)
+		{
+			state = bpf_map_lookup_elem(&flow_state, &p_info.pid);
+		}
+		else
+		{
+			bpf_debug("Failed to add");
+		}
+	}
+
+	/* Bail out if we have no information */
+	if (state == NULL)
+		return;
+
+	/* Update the flow state */
+	state->sent_pkts++;			  // TODO: Do we really care about this?
+	state->sent_bytes += tot_len; // Likewise
+
+	/* Pping timestamp the packet */
+	if (state->outstanding_timestamps > 0) {
+		__u64 *prev_time = bpf_map_lookup_elem(&packet_ts, &p_info.pid);
+		if (prev_time != NULL) {
+			__sync_fetch_and_add(&state->outstanding_timestamps, -1);
+			bpf_debug("Time difference: %u nanoseconds", p_info.time - *prev_time);
+			bpf_map_delete_elem(&packet_ts, &p_info.pid);
+		} else {
+				if (bpf_map_update_elem(&packet_ts, &p_info.pid, &p_info.time, BPF_NOEXIST) == 0) {
+					__sync_fetch_and_add(&state->outstanding_timestamps, 1);
+				}
+		}
+	} else {
+			if (bpf_map_update_elem(&packet_ts, &p_info.pid, &p_info.time, BPF_NOEXIST) == 0) {
+				__sync_fetch_and_add(&state->outstanding_timestamps, 1);
+			}
+	}
+}
+
+static __always_inline void tc_pping_v4(void *data, void *data_end, __u32 l3_offset, struct iphdr *iph,
+										__u32 src_ip, __u32 dst_ip, __u32 tot_len, bool is_wan)
+{
+	if (iph->protocol != IPPROTO_TCP)
+		return; /* If its not TCP, we're not interested */
+
+	/* Extract the TCP header */
+	struct tcphdr *tcp = (struct tcphdr *)((char *)iph + (iph->ihl * 4));
+	if (tcp + 1 > data_end)
+		return;
+
+	struct in6_addr src;
+	struct in6_addr dst;
+	src.in6_u.u6_addr32[0] = 0;
+	src.in6_u.u6_addr32[1] = 0;
+	src.in6_u.u6_addr32[2] = 0;
+	src.in6_u.u6_addr32[3] = src_ip;
+	dst.in6_u.u6_addr32[0] = 0;
+	dst.in6_u.u6_addr32[1] = 0;
+	dst.in6_u.u6_addr32[2] = 0;
+	dst.in6_u.u6_addr32[3] = dst_ip;
+	__u16 source_port, dest_port;
+	if (is_wan)
+	{
+		source_port = bpf_ntohs(tcp->source);
+		dest_port = bpf_ntohs(tcp->dest);
+	}
+	else
+	{
+		source_port = bpf_ntohs(tcp->dest);
+		dest_port = bpf_ntohs(tcp->source);
+	}
+	tc_pping(data, data_end, tcp, &src, &dst, tot_len, source_port, dest_port);
+}
+
+static __always_inline void tc_pping_v6(void *data, void *data_end, __u32 l3_offset, struct ipv6hdr *iph,
+										struct in6_addr *src_ip, struct in6_addr *dst_ip, __u32 tot_len, bool is_wan)
+{
+	if (iph->nexthdr != IPPROTO_TCP)
+		return; /* If its not TCP, we're not interested */
+	/* Extract the TCP header */
+	struct tcphdr *tcp = (struct tcphdr *)(iph + 1);
+	if (tcp + 1 > data_end)
+		return;
+
+	__u16 source_port, dest_port;
+	if (is_wan)
+	{
+		source_port = bpf_ntohs(tcp->source);
+		dest_port = bpf_ntohs(tcp->dest);
+	}
+	else
+	{
+		source_port = bpf_ntohs(tcp->dest);
+		dest_port = bpf_ntohs(tcp->source);
+	}
+
+	tc_pping(data, data_end, tcp, src_ip, dst_ip, tot_len, source_port, dest_port);
+}
+
 static __always_inline void get_ipv4_addr(struct __sk_buff *skb, __u32 l3_offset, __u32 ifindex_type,
 										  struct ip_hash_key *key)
 {
 	void *data_end = (void *)(long)skb->data_end;
 	void *data = (void *)(long)skb->data;
 	struct iphdr *iph = data + l3_offset;
-	__u32 ipv4 = 0;
 
 	if (iph + 1 > data_end)
 	{
@@ -181,15 +475,16 @@ static __always_inline void get_ipv4_addr(struct __sk_buff *skb, __u32 l3_offset
 	switch (ifindex_type)
 	{
 	case INTERFACE_WAN: /* Egress on WAN interface: match on src IP */
-		ipv4 = iph->saddr;
+		key->address.in6_u.u6_addr32[3] = iph->saddr;
+		tc_pping_v4(data, data_end, l3_offset, iph, iph->saddr, iph->daddr, skb->len, true);
 		break;
 	case INTERFACE_LAN: /* Egress on LAN interface: match on dst IP */
-		ipv4 = iph->daddr;
+		key->address.in6_u.u6_addr32[3] = iph->daddr;
+		tc_pping_v4(data, data_end, l3_offset, iph, iph->daddr, iph->saddr, skb->len, false);
 		break;
 	default:
-		ipv4 = 0;
+		key->address.in6_u.u6_addr32[3] = 0;
 	}
-	key->address.in6_u.u6_addr32[3] = ipv4;
 }
 
 static __always_inline void get_ipv6_addr(struct __sk_buff *skb, __u32 l3_offset, __u32 ifindex_type,
@@ -212,9 +507,11 @@ static __always_inline void get_ipv6_addr(struct __sk_buff *skb, __u32 l3_offset
 	{
 	case INTERFACE_WAN: /* Egress on WAN interface: match on src IP */
 		key->address = ip6h->saddr;
+		tc_pping_v6(data, data_end, l3_offset, ip6h, &ip6h->saddr, &ip6h->daddr, skb->len, true);
 		break;
 	case INTERFACE_LAN: /* Egress on LAN interface: match on dst IP */
 		key->address = ip6h->daddr;
+		tc_pping_v6(data, data_end, l3_offset, ip6h, &ip6h->daddr, &ip6h->saddr, skb->len, false);
 		break;
 	}
 }
@@ -390,8 +687,9 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 		ip_info = bpf_map_lookup_elem(&map_ip_hash, &hash_key);
 		if (!ip_info)
 		{
-			bpf_debug("Misconf: FAILED lookup IP:0x%x ifindex_ingress:%d prio:%x\n",
-					  hash_key.address.in6_u.u6_addr32[3], skb->ingress_ifindex, skb->priority);
+			// Commented out for clarity
+			// bpf_debug("Misconf: FAILED lookup IP:0x%x ifindex_ingress:%d prio:%x\n",
+			//		  hash_key.address.in6_u.u6_addr32[3], skb->ingress_ifindex, skb->priority);
 			// TODO: Assign to some default classid?
 			return TC_ACT_OK;
 		}

@@ -30,7 +30,7 @@ struct {
 	__uint(pinning, LIBBPF_PIN_BY_NAME);
 } map_txq_config SEC(".maps");
 
-/* Manuel setup:
+/* Manual setup:
 
  tc qdisc  del dev ixgbe2 clsact # clears all
  tc qdisc  add dev ixgbe2 clsact

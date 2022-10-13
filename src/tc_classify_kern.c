@@ -22,7 +22,8 @@
 /* More dynamic: let create a map that contains the mapping table, to
  * allow more dynamic configuration. (See common.h for struct txq_config)
  */
-struct {
+struct
+{
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__uint(max_entries, MAX_CPUS);
 	__type(key, __u32);
@@ -39,7 +40,8 @@ struct {
 
 */
 
-struct vlan_hdr {
+struct vlan_hdr
+{
 	__be16 h_vlan_TCI;
 	__be16 h_vlan_encapsulated_proto;
 };
@@ -47,15 +49,16 @@ struct vlan_hdr {
 /* iproute2 use another ELF map layout than libbpf.  The PIN_GLOBAL_NS
  * will cause map to be exported to /sys/fs/bpf/tc/globals/
  */
-#define PIN_GLOBAL_NS	2
-struct bpf_elf_map {
-        __u32 type;
-        __u32 size_key;
-        __u32 size_value;
-        __u32 max_elem;
-        __u32 flags;
-        __u32 id;
-        __u32 pinning;
+#define PIN_GLOBAL_NS 2
+struct bpf_elf_map
+{
+	__u32 type;
+	__u32 size_key;
+	__u32 size_value;
+	__u32 max_elem;
+	__u32 flags;
+	__u32 id;
+	__u32 pinning;
 	__u32 inner_id;
 	__u32 inner_idx;
 };
@@ -87,18 +90,21 @@ struct bpf_elf_map {
  */
 
 #define DEBUG 1
-#ifdef  DEBUG
+#ifdef DEBUG
 /* Only use this for debug output. Notice output from bpf_trace_printk()
  * end-up in /sys/kernel/debug/tracing/trace_pipe
  */
-#define bpf_debug(fmt, ...)                                             \
-                ({                                                      \
-                        char ____fmt[] = "(tc) " fmt;			\
-                        bpf_trace_printk(____fmt, sizeof(____fmt),      \
-                                     ##__VA_ARGS__);                    \
-                })
+#define bpf_debug(fmt, ...)                        \
+	({                                             \
+		char ____fmt[] = "(tc) " fmt;              \
+		bpf_trace_printk(____fmt, sizeof(____fmt), \
+						 ##__VA_ARGS__);           \
+	})
 #else
-#define bpf_debug(fmt, ...) { } while (0)
+#define bpf_debug(fmt, ...) \
+	{                       \
+	}                       \
+	while (0)
 #endif
 
 /* Wrap the macros from <linux/pkt_sched.h> */
@@ -109,9 +115,8 @@ struct bpf_elf_map {
  *
  * Returns false on error and non-supported ether-type
  */
-static __always_inline
-bool parse_eth(struct ethhdr *eth, void *data_end,
-	       __u16 *eth_proto, __u32 *l3_offset)
+static __always_inline bool parse_eth(struct ethhdr *eth, void *data_end,
+									  __u16 *eth_proto, __u32 *l3_offset)
 {
 	__u16 eth_type;
 	__u64 offset;
@@ -128,7 +133,8 @@ bool parse_eth(struct ethhdr *eth, void *data_end,
 
 	/* Handle VLAN tagged packet */
 	if (eth_type == bpf_htons(ETH_P_8021Q) ||
-	    eth_type == bpf_htons(ETH_P_8021AD)) {
+		eth_type == bpf_htons(ETH_P_8021AD))
+	{
 		struct vlan_hdr *vlan_hdr;
 
 		vlan_hdr = (void *)eth + offset;
@@ -139,7 +145,8 @@ bool parse_eth(struct ethhdr *eth, void *data_end,
 	}
 	/* Handle double VLAN tagged packet */
 	if (eth_type == bpf_htons(ETH_P_8021Q) ||
-	    eth_type == bpf_htons(ETH_P_8021AD)) {
+		eth_type == bpf_htons(ETH_P_8021AD))
+	{
 		struct vlan_hdr *vlan_hdr;
 
 		vlan_hdr = (void *)eth + offset;
@@ -154,24 +161,25 @@ bool parse_eth(struct ethhdr *eth, void *data_end,
 	return true;
 }
 
-static __always_inline
-void get_ipv4_addr(struct __sk_buff *skb, __u32 l3_offset, __u32 ifindex_type,
-		struct ip_hash_key *key)
+static __always_inline void get_ipv4_addr(struct __sk_buff *skb, __u32 l3_offset, __u32 ifindex_type,
+										  struct ip_hash_key *key)
 {
 	void *data_end = (void *)(long)skb->data_end;
-	void *data     = (void *)(long)skb->data;
+	void *data = (void *)(long)skb->data;
 	struct iphdr *iph = data + l3_offset;
 	__u32 ipv4 = 0;
 
-	if (iph + 1 > data_end) {
-		//bpf_debug("Invalid IPv4 packet: L3off:%llu\n", l3_offset);
+	if (iph + 1 > data_end)
+	{
+		// bpf_debug("Invalid IPv4 packet: L3off:%llu\n", l3_offset);
 		return;
 	}
 
 	/* The IP-addr to match against depend on the "direction" of
 	 * the packet.  This TC hook runs at egress.
 	 */
-	switch (ifindex_type) {
+	switch (ifindex_type)
+	{
 	case INTERFACE_WAN: /* Egress on WAN interface: match on src IP */
 		ipv4 = iph->saddr;
 		break;
@@ -184,24 +192,24 @@ void get_ipv4_addr(struct __sk_buff *skb, __u32 l3_offset, __u32 ifindex_type,
 	key->address.in6_u.u6_addr32[3] = ipv4;
 }
 
-
-static __always_inline
-void get_ipv6_addr(struct __sk_buff *skb, __u32 l3_offset, __u32 ifindex_type,
-		struct ip_hash_key *key)
+static __always_inline void get_ipv6_addr(struct __sk_buff *skb, __u32 l3_offset, __u32 ifindex_type,
+										  struct ip_hash_key *key)
 {
 	void *data_end = (void *)(long)skb->data_end;
-	void *data     = (void *)(long)skb->data;
+	void *data = (void *)(long)skb->data;
 	struct ipv6hdr *ip6h = data + l3_offset;
 
-	if (ip6h + 1 > data_end) {
-		//bpf_debug("Invalid IPv6 packet: L3off:%llu\n", l3_offset);
+	if (ip6h + 1 > data_end)
+	{
+		// bpf_debug("Invalid IPv6 packet: L3off:%llu\n", l3_offset);
 		return;
 	}
 
 	/* The IP-addr to match against depend on the "direction" of
 	 * the packet.  This TC hook runs at egress.
 	 */
-	switch (ifindex_type) {
+	switch (ifindex_type)
+	{
 	case INTERFACE_WAN: /* Egress on WAN interface: match on src IP */
 		key->address = ip6h->saddr;
 		break;
@@ -218,8 +226,9 @@ void get_ipv6_addr(struct __sk_buff *skb, __u32 l3_offset, __u32 ifindex_type,
  * need fixup of class MAJOR number to match CPU.
  */
 static __always_inline
-__u32 localhost_default_classid(struct __sk_buff *skb,
-				struct txq_config *txq_cfg)
+	__u32
+	localhost_default_classid(struct __sk_buff *skb,
+							  struct txq_config *txq_cfg)
 {
 	__u32 cpu_major;
 
@@ -228,9 +237,12 @@ __u32 localhost_default_classid(struct __sk_buff *skb,
 
 	cpu_major = txq_cfg->htb_major << 16;
 
-	if (skb->priority == 0) {
+	if (skb->priority == 0)
+	{
 		skb->priority = cpu_major | DEFAULT_LOCALHOST_MINOR;
-	} else {
+	}
+	else
+	{
 		/* The classid (via skb->priority) is already set, we
 		 * allow this, but update major number (assigned to CPU)
 		 */
@@ -251,11 +263,10 @@ __u32 localhost_default_classid(struct __sk_buff *skb,
  * to set the TC-handle/classid (in skb->priority) and match the
  * special TC-minor classid here.
  */
-#define SPECIAL_MINOR_CLASSID_LOW  3
+#define SPECIAL_MINOR_CLASSID_LOW 3
 #define SPECIAL_MINOR_CLASSID_HIGH 9
-static __always_inline
-bool special_minor_classid(struct __sk_buff *skb,
-			   struct txq_config *txq_cfg)
+static __always_inline bool special_minor_classid(struct __sk_buff *skb,
+												  struct txq_config *txq_cfg)
 {
 	__u32 curr_minor;
 
@@ -268,12 +279,13 @@ bool special_minor_classid(struct __sk_buff *skb,
 	curr_minor = TC_H_MINOR(skb->priority);
 
 	if (curr_minor >= SPECIAL_MINOR_CLASSID_LOW &&
-	    curr_minor <= SPECIAL_MINOR_CLASSID_HIGH) {
+		curr_minor <= SPECIAL_MINOR_CLASSID_HIGH)
+	{
 		/* The classid (via skb->priority) was already set
 		 * with a special minor-classid, but update major
 		 * number assigned to this CPU
 		 */
-		__u32 cpu_major  = txq_cfg->htb_major << 16;
+		__u32 cpu_major = txq_cfg->htb_major << 16;
 
 		skb->priority = cpu_major | curr_minor;
 		return true;
@@ -296,7 +308,7 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 
 	/* For packet parsing */
 	void *data_end = (void *)(long)skb->data_end;
-	void *data     = (void *)(long)skb->data;
+	void *data = (void *)(long)skb->data;
 	struct ethhdr *eth = data;
 	__u16 eth_proto = 0;
 	__u32 l3_offset = 0;
@@ -304,22 +316,27 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 	struct ip_hash_key hash_key;
 
 	txq_cfg = bpf_map_lookup_elem(&map_txq_config, &cpu);
-        if (!txq_cfg)
-                return TC_ACT_SHOT;
+	if (!txq_cfg)
+		return TC_ACT_SHOT;
 
-	if (txq_cfg->queue_mapping != 0) {
+	if (txq_cfg->queue_mapping != 0)
+	{
 		skb->queue_mapping = txq_cfg->queue_mapping;
-	} else {
+	}
+	else
+	{
 		bpf_debug("Misconf: CPU:%u no conf (curr qm:%d)\n",
-			  cpu, skb->queue_mapping);
+				  cpu, skb->queue_mapping);
 	}
 
 	/* Localhost generated traffic, goes into another default qdisc */
-	if (skb->ingress_ifindex == 0) {
+	if (skb->ingress_ifindex == 0)
+	{
 		return localhost_default_classid(skb, txq_cfg);
 	}
 
-	if (special_minor_classid(skb, txq_cfg)) {
+	if (special_minor_classid(skb, txq_cfg))
+	{
 		/* SKB was pre-marked with special class id */
 		return TC_ACT_OK;
 	}
@@ -329,9 +346,10 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 	 * tagging, we still need to parse eth-headers.  The
 	 * skb->{vlan_present,vlan_tci} can only show outer VLAN.
 	 */
-	if (!(parse_eth(eth, data_end, &eth_proto, &l3_offset))) {
+	if (!(parse_eth(eth, data_end, &eth_proto, &l3_offset)))
+	{
 		bpf_debug("Cannot parse L2: L3off:%llu proto:0x%x\n",
-			  l3_offset, eth_proto);
+				  l3_offset, eth_proto);
 		return TC_ACT_OK; /* Skip */
 	}
 
@@ -342,45 +360,49 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 		return TC_ACT_OK;
 
 	/* Get IP addr to match against */
-        hash_key.prefixlen = 128;
-        hash_key.address.in6_u.u6_addr32[0] = 0xFFFFFFFF;
-        hash_key.address.in6_u.u6_addr32[1] = 0xFFFFFFFF;
-        hash_key.address.in6_u.u6_addr32[2] = 0xFFFFFFFF;
-        hash_key.address.in6_u.u6_addr32[3] = 0xFFFFFFFF;
-	switch (eth_proto) {
+	hash_key.prefixlen = 128;
+	hash_key.address.in6_u.u6_addr32[0] = 0xFFFFFFFF;
+	hash_key.address.in6_u.u6_addr32[1] = 0xFFFFFFFF;
+	hash_key.address.in6_u.u6_addr32[2] = 0xFFFFFFFF;
+	hash_key.address.in6_u.u6_addr32[3] = 0xFFFFFFFF;
+	switch (eth_proto)
+	{
 	case ETH_P_IP:
 		get_ipv4_addr(skb, l3_offset, *ifindex_type, &hash_key);
 		break;
-	case ETH_P_IPV6: 
+	case ETH_P_IPV6:
 		get_ipv6_addr(skb, l3_offset, *ifindex_type, &hash_key);
 		break;
-	case ETH_P_ARP:  /* Let OS handle ARP */
-		// TODO: Should we choose a special classid for these?
-		/* Fall-through */
+	case ETH_P_ARP: /* Let OS handle ARP */
+					// TODO: Should we choose a special classid for these?
+					/* Fall-through */
 	default:
 		// bpf_debug("Not handling eth_proto:0x%x\n", eth_proto);
 		return TC_ACT_OK;
 	}
 
 	ip_info = bpf_map_lookup_elem(&map_ip_hash, &hash_key);
-	if (!ip_info) {
+	if (!ip_info)
+	{
 		/* Check for 255.255.255.255/32 as a default if no 0.0.0.0/0 is provided */
 		hash_key.prefixlen = 128;
 		hash_key.address.in6_u.u6_addr32[3] = 0xFFFFFFFF;
 		ip_info = bpf_map_lookup_elem(&map_ip_hash, &hash_key);
-		if (!ip_info) {
+		if (!ip_info)
+		{
 			bpf_debug("Misconf: FAILED lookup IP:0x%x ifindex_ingress:%d prio:%x\n",
-				  hash_key.address.in6_u.u6_addr32[3], skb->ingress_ifindex, skb->priority);
+					  hash_key.address.in6_u.u6_addr32[3], skb->ingress_ifindex, skb->priority);
 			// TODO: Assign to some default classid?
 			return TC_ACT_OK;
 		}
 	}
 
-	if (ip_info->cpu != cpu) {
+	if (ip_info->cpu != cpu)
+	{
 		bpf_debug("Mismatch: Curr-CPU:%u but IP:%x wants CPU:%u\n",
-			  cpu, hash_key.address.in6_u.u6_addr32[3], ip_info->cpu);
+				  cpu, hash_key.address.in6_u.u6_addr32[3], ip_info->cpu);
 		bpf_debug("Mismatch: more-info ifindex:%d ingress:%d skb->prio:%x\n",
-			  skb->ifindex, skb->ingress_ifindex, skb->priority);
+				  skb->ifindex, skb->ingress_ifindex, skb->priority);
 	}
 
 	/* Catch if TC handle major number mismatch, between CPU
@@ -392,17 +414,17 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 	{
 		// TODO: Could fixup MAJOR number
 		bpf_debug("Misconf: TC major(%d) mismatch %x\n",
-			  txq_cfg->htb_major, ip_info->tc_handle);
+				  txq_cfg->htb_major, ip_info->tc_handle);
 	}
 
 	/* Setup skb->priority (TC-handle) based on ip_info */
 	if (ip_info->tc_handle != 0)
 		skb->priority = ip_info->tc_handle;
 
-	//bpf_debug("Lookup IP:%x prio:0x%x tc_handle:0x%x\n",
+	// bpf_debug("Lookup IP:%x prio:0x%x tc_handle:0x%x\n",
 	//	  ipv4, skb->priority, ip_info->tc_handle);
 
-	//return TC_ACT_OK;
+	// return TC_ACT_OK;
 	return action;
 }
 

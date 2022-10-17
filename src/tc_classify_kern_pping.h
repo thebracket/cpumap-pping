@@ -17,6 +17,7 @@
 #include <stdbool.h>
 
 #define MAX_MEMCMP_SIZE 128
+#define DELAY_BETWEEN_RTT_REPORTS_MS 1000
 
 #define DEBUG 1
 #ifdef DEBUG
@@ -779,7 +780,7 @@ static __always_inline bool is_new_identifier(struct packet_id *pid, struct flow
 
 static __always_inline bool is_rate_limited(__u64 now, __u64 last_ts, __u64 rtt)
 {
-    /*if (now < last_ts)
+    if (now < last_ts)
         return true;
 
     // RTT-based rate limit
@@ -787,8 +788,7 @@ static __always_inline bool is_rate_limited(__u64 now, __u64 last_ts, __u64 rtt)
     //	return now - last_ts < FIXPOINT_TO_UINT(config.rtt_rate * rtt);
 
     // Static rate limit
-    return now - last_ts < 100 * NS_PER_MS;*/
-    return false;
+    return now - last_ts < DELAY_BETWEEN_RTT_REPORTS_MS * NS_PER_MS;
 }
 
 /*

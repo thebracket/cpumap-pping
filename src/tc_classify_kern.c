@@ -402,6 +402,7 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 			return TC_ACT_OK;
 		}
 	}
+	context.tc_handle = ip_info->tc_handle;
 	tc_pping_start(&context);
 
 	if (ip_info->cpu != cpu)

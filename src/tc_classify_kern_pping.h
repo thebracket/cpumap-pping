@@ -57,6 +57,7 @@ struct parsing_context
     __u32 skb_len;
     __be16 protocol;
     struct tcphdr *tcp;
+    __u32 tc_handle;
 };
 
 /* Event type recorded for a packet flow */
@@ -130,6 +131,11 @@ static __always_inline void debug_network_tuple(struct network_tuple *key) {
     bpf_debug("     %u, %u", key->proto, key->reserved);*/
 }
 
+union tc_handle_type {
+    __u32 handle;
+    __u16 majmin[2];
+};
+
 struct flow_state
 {
     __u64 min_rtt;
@@ -143,7 +149,8 @@ struct flow_state
     __u32 outstanding_timestamps;
     enum connection_state conn_state;
     enum flow_event_reason opening_reason;
-    __u8 reserved[6];
+    union tc_handle_type tc_handle;
+    __u8 reserved[2];
 };
 
 /*
@@ -666,12 +673,14 @@ static __always_inline void init_dualflow_state(struct dual_flow_state *df_state
 }
 
 static __always_inline struct dual_flow_state *
-create_dualflow_state(void *ctx, struct packet_info *p_info, bool *new_flow)
+create_dualflow_state(struct parsing_context *ctx, struct packet_info *p_info, bool *new_flow)
 {
     struct network_tuple *key = get_dualflow_key_from_packet(p_info);
     struct dual_flow_state new_state = {0};
 
     init_dualflow_state(&new_state, p_info);
+    new_state.dir1.tc_handle.handle = ctx->tc_handle;
+    new_state.dir2.tc_handle.handle = ctx->tc_handle;
 
     if (bpf_map_update_elem(&flow_state, key, &new_state, BPF_NOEXIST) ==
         0)
@@ -885,7 +894,7 @@ static __always_inline void pping_match_packet(struct flow_state *f_state, void 
     re.flow = p_info->pid.flow;
     re.match_on_egress = !p_info->is_ingress;
     bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &re, sizeof(re));*/
-    bpf_debug("Send performance event, %u", re.rtt);
+    bpf_debug("Send performance event (%u,%u), %u", f_state->tc_handle.majmin[0], f_state->tc_handle.majmin[1], re.rtt);
 }
 
 static __always_inline void close_and_delete_flows(void *ctx, struct packet_info *p_info,

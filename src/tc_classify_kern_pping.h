@@ -894,7 +894,7 @@ static __always_inline void pping_match_packet(struct flow_state *f_state, void 
     re.flow = p_info->pid.flow;
     re.match_on_egress = !p_info->is_ingress;
     bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &re, sizeof(re));*/
-    bpf_debug("Send performance event (%u,%u), %u", f_state->tc_handle.majmin[0], f_state->tc_handle.majmin[1], re.rtt);
+    bpf_debug("Send performance event (%u,%u), %u", f_state->tc_handle.majmin[1], f_state->tc_handle.majmin[0], re.rtt);
 }
 
 static __always_inline void close_and_delete_flows(void *ctx, struct packet_info *p_info,

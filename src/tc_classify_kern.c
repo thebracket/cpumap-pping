@@ -117,14 +117,14 @@ struct bpf_elf_map
  *
  * Returns false on error and non-supported ether-type
  */
-static __always_inline bool parse_eth(struct ethhdr *eth, void *data_end,
-									  __u16 *eth_proto, __u32 *l3_offset)
+static __always_inline bool parse_eth(struct parsing_context *context)
 {
 	__u16 eth_type;
 	__u64 offset;
+	struct ethhdr *eth = context->data;
 
 	offset = sizeof(*eth);
-	if ((void *)eth + offset > data_end)
+	if ((void *)eth + offset > context->data_end)
 		return false;
 
 	eth_type = eth->h_proto;
@@ -141,7 +141,7 @@ static __always_inline bool parse_eth(struct ethhdr *eth, void *data_end,
 
 		vlan_hdr = (void *)eth + offset;
 		offset += sizeof(*vlan_hdr);
-		if ((void *)eth + offset > data_end)
+		if ((void *)eth + offset > context->data_end)
 			return false;
 		eth_type = vlan_hdr->h_vlan_encapsulated_proto;
 	}
@@ -153,24 +153,23 @@ static __always_inline bool parse_eth(struct ethhdr *eth, void *data_end,
 
 		vlan_hdr = (void *)eth + offset;
 		offset += sizeof(*vlan_hdr);
-		if ((void *)eth + offset > data_end)
+		if ((void *)eth + offset > context->data_end)
 			return false;
 		eth_type = vlan_hdr->h_vlan_encapsulated_proto;
 	}
 
-	*eth_proto = bpf_ntohs(eth_type);
-	*l3_offset = offset;
+	context->protocol = bpf_ntohs(eth_type);
+	context->l3_offset = offset;
 	return true;
 }
 
-static __always_inline void get_ipv4_addr(struct __sk_buff *skb, __u32 l3_offset, __u32 ifindex_type,
+static __always_inline void get_ipv4_addr(struct parsing_context *context, __u32 ifindex_type,
 										  struct ip_hash_key *key)
 {
-	void *data_end = (void *)(long)skb->data_end;
-	void *data = (void *)(long)skb->data;
-	struct iphdr *iph = data + l3_offset;
+	context->protocol = ETH_P_IP;
+	context->ip_header.iph = context->data + context->l3_offset;
 
-	if (iph + 1 > data_end)
+	if (context->ip_header.iph + 1 > context->data_end)
 	{
 		// bpf_debug("Invalid IPv4 packet: L3off:%llu\n", l3_offset);
 		return;
@@ -179,39 +178,30 @@ static __always_inline void get_ipv4_addr(struct __sk_buff *skb, __u32 l3_offset
 	/* The IP-addr to match against depend on the "direction" of
 	 * the packet.  This TC hook runs at egress.
 	 */
-	struct parsing_context context;
-	context.data = data;
-	context.data_end = data_end;
-	context.l3_offset = l3_offset;
-	context.ip_header.iph = iph;
-	context.skb_len = skb->len;
-	context.protocol = ETH_P_IP;
-
 	switch (ifindex_type)
 	{
 	case INTERFACE_WAN: /* Egress on WAN interface: match on src IP */
-		key->address.in6_u.u6_addr32[3] = iph->saddr;
+		key->address.in6_u.u6_addr32[3] = context->ip_header.iph->saddr;
 		//bpf_debug("WAN");
 		break;
 	case INTERFACE_LAN: /* Egress on LAN interface: match on dst IP */
-		key->address.in6_u.u6_addr32[3] = iph->daddr;
+		key->address.in6_u.u6_addr32[3] = context->ip_header.iph->daddr;
 		//bpf_debug("LAN");
 		break;
 	default:
 		key->address.in6_u.u6_addr32[3] = 0;
 	}
 
-	tc_pping_start(&context);
+	tc_pping_start(context);
 }
 
-static __always_inline void get_ipv6_addr(struct __sk_buff *skb, __u32 l3_offset, __u32 ifindex_type,
+static __always_inline void get_ipv6_addr(struct parsing_context *context, __u32 ifindex_type,
 										  struct ip_hash_key *key)
 {
-	void *data_end = (void *)(long)skb->data_end;
-	void *data = (void *)(long)skb->data;
-	struct ipv6hdr *ip6h = data + l3_offset;
+	context->protocol = ETH_P_IPV6;
+	context->ip_header.ip6h = context->data + context->l3_offset;
 
-	if (ip6h + 1 > data_end)
+	if (context->ip_header.ip6h + 1 > context->data_end)
 	{
 		// bpf_debug("Invalid IPv6 packet: L3off:%llu\n", l3_offset);
 		return;
@@ -220,25 +210,17 @@ static __always_inline void get_ipv6_addr(struct __sk_buff *skb, __u32 l3_offset
 	/* The IP-addr to match against depend on the "direction" of
 	 * the packet.  This TC hook runs at egress.
 	 */
-	struct parsing_context context;
-	context.data = data;
-	context.data_end = data_end;
-	context.l3_offset = l3_offset;
-	context.ip_header.ip6h = ip6h;
-	context.skb_len = skb->len;
-	context.protocol = ETH_P_IPV6;
-
 	switch (ifindex_type)
 	{
 	case INTERFACE_WAN: /* Egress on WAN interface: match on src IP */
-		key->address = ip6h->saddr;
+		key->address = context->ip_header.ip6h->saddr;
 		break;
 	case INTERFACE_LAN: /* Egress on LAN interface: match on dst IP */
-		key->address = ip6h->daddr;
+		key->address = context->ip_header.ip6h->daddr;
 		break;
 	}
 
-	tc_pping_start(&context);
+	tc_pping_start(context);
 }
 
 /* Locahost generated traffic gets assigned a classid MINOR number */
@@ -329,11 +311,12 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 	__u32 action = TC_ACT_OK;
 
 	/* For packet parsing */
-	void *data_end = (void *)(long)skb->data_end;
-	void *data = (void *)(long)skb->data;
-	struct ethhdr *eth = data;
-	__u16 eth_proto = 0;
-	__u32 l3_offset = 0;
+	struct parsing_context context;
+	context.skb_len = skb->len;
+	context.data_end = (void *)(long)skb->data_end;
+	context.data = (void *)(long)skb->data;
+	context.protocol = 0;
+	context.l3_offset = 0;
 	//__u32 ipv4 = bpf_ntohl(0xFFFFFFFF); // default not found
 	struct ip_hash_key hash_key;
 
@@ -368,10 +351,10 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 	 * tagging, we still need to parse eth-headers.  The
 	 * skb->{vlan_present,vlan_tci} can only show outer VLAN.
 	 */
-	if (!(parse_eth(eth, data_end, &eth_proto, &l3_offset)))
+	if (!(parse_eth(&context)))
 	{
 		bpf_debug("Cannot parse L2: L3off:%llu proto:0x%x\n",
-				  l3_offset, eth_proto);
+				  context.l3_offset, context.protocol);
 		return TC_ACT_OK; /* Skip */
 	}
 
@@ -387,13 +370,13 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 	hash_key.address.in6_u.u6_addr32[1] = 0xFFFFFFFF;
 	hash_key.address.in6_u.u6_addr32[2] = 0xFFFFFFFF;
 	hash_key.address.in6_u.u6_addr32[3] = 0xFFFFFFFF;
-	switch (eth_proto)
+	switch (context.protocol)
 	{
 	case ETH_P_IP:
-		get_ipv4_addr(skb, l3_offset, *ifindex_type, &hash_key);
+		get_ipv4_addr(&context, *ifindex_type, &hash_key);
 		break;
 	case ETH_P_IPV6:
-		get_ipv6_addr(skb, l3_offset, *ifindex_type, &hash_key);
+		get_ipv6_addr(&context, *ifindex_type, &hash_key);
 		break;
 	case ETH_P_ARP: /* Let OS handle ARP */
 					// TODO: Should we choose a special classid for these?

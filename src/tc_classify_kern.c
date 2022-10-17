@@ -201,7 +201,7 @@ static __always_inline void get_ipv4_addr(struct __sk_buff *skb, __u32 l3_offset
 		key->address.in6_u.u6_addr32[3] = 0;
 	}
 
-	tc_pping_start(&context, false);
+	tc_pping_start(&context);
 }
 
 static __always_inline void get_ipv6_addr(struct __sk_buff *skb, __u32 l3_offset, __u32 ifindex_type,
@@ -238,7 +238,7 @@ static __always_inline void get_ipv6_addr(struct __sk_buff *skb, __u32 l3_offset
 		break;
 	}
 
-	tc_pping_start(&context, false);
+	tc_pping_start(&context);
 }
 
 /* Locahost generated traffic gets assigned a classid MINOR number */

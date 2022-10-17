@@ -504,7 +504,7 @@ static __always_inline int parse_tcp_ts(struct tcphdr *tcph, void *data_end, __u
  */
 static __always_inline int parse_tcp_identifier(struct parsing_context *context,
                                                 __u16 *sport,
-                                                __u16 *dport, struct protocol_info *proto_info, bool is_wan)
+                                                __u16 *dport, struct protocol_info *proto_info)
 {
     if (parse_tcp_ts(context->tcp, context->data_end, &proto_info->pid, &proto_info->reply_pid) < 0)
         return -1; // Possible TODO, fall back on seq/ack instead
@@ -540,14 +540,14 @@ static __always_inline int parse_tcp_identifier(struct parsing_context *context,
         proto_info->event_reason = EVENT_REASON_NONE;
     }
 
-    *sport = is_wan ? bpf_ntohs(context->tcp->source) : bpf_ntohs(context->tcp->dest);
-    *dport = is_wan ? bpf_ntohs(context->tcp->dest) : bpf_ntohs(context->tcp->source);
+    *sport = bpf_ntohs(context->tcp->dest);
+    *dport = bpf_ntohs(context->tcp->source);
 
     return 0;
 }
 
 /* This is a bit of a hackjob from the original */
-static __always_inline int parse_packet_identifier(struct parsing_context *context, struct packet_info *p_info, bool is_wan)
+static __always_inline int parse_packet_identifier(struct parsing_context *context, struct packet_info *p_info)
 {
     p_info->time = bpf_ktime_get_ns();
     if (context->protocol == ETH_P_IP)
@@ -572,8 +572,7 @@ static __always_inline int parse_packet_identifier(struct parsing_context *conte
     int err = parse_tcp_identifier(context,
                                    &p_info->pid.flow.saddr.port,
                                    &p_info->pid.flow.daddr.port,
-                                   &proto_info,
-                                   is_wan);
+                                   &proto_info);
     if (err)
         return -1;
 
@@ -952,7 +951,7 @@ static __always_inline void pping_parsed_packet(void *context, struct packet_inf
 }
 
 /* Entry poing for running pping in the tc context */
-static __always_inline void tc_pping_start(struct parsing_context *context, bool is_wan)
+static __always_inline void tc_pping_start(struct parsing_context *context)
 {
     //__u32 cpu = bpf_get_smp_processor_id();
     //bpf_debug("Running on CPU: %u", cpu);
@@ -990,7 +989,7 @@ static __always_inline void tc_pping_start(struct parsing_context *context, bool
 
     /* Start the parsing process */
     struct packet_info p_info = {0};
-    if (parse_packet_identifier(context, &p_info, is_wan) < 0)
+    if (parse_packet_identifier(context, &p_info) < 0)
     {
         bpf_debug("Unable to parse packet identifier");
         return;

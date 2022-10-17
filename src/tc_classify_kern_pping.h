@@ -141,10 +141,10 @@ struct flow_state
     __u64 min_rtt;
     __u64 srtt;
     __u64 last_timestamp;
-    __u64 sent_pkts;
-    __u64 sent_bytes;
-    __u64 rec_pkts;
-    __u64 rec_bytes;
+    //__u64 sent_pkts;
+    //__u64 sent_bytes;
+    //__u64 rec_pkts;
+    //__u64 rec_bytes;
     __u32 last_id;
     __u32 outstanding_timestamps;
     enum connection_state conn_state;
@@ -185,7 +185,7 @@ struct packet_id
 struct packet_info
 {
     __u64 time;                 // Arrival time of packet
-    __u32 payload;              // Size of packet data (excluding headers)
+    //__u32 payload;              // Size of packet data (excluding headers)
     struct packet_id pid;       // flow + identifier to timestamp (ex. TSval)
     struct packet_id reply_pid; // rev. flow + identifier to match against (ex. TSecr)
     __u32 ingress_ifindex;      // Interface packet arrived on (if is_ingress, otherwise not valid)
@@ -227,7 +227,7 @@ struct protocol_info
  * Uses explicit padding instead of packing based on recommendations in cilium's
  * BPF reference documentation at https://docs.cilium.io/en/stable/bpf/#llvm.
  */
-struct rtt_event
+/*struct rtt_event
 {
     __u64 event_type;
     __u64 timestamp;
@@ -241,6 +241,13 @@ struct rtt_event
     __u64 rec_bytes;
     bool match_on_egress;
     __u8 reserved[7];
+};*/
+
+/* 30 second rotating performance buffer, per-TC handle */
+#define MAX_PERF_SECONDS 60
+struct rotating_performance {
+    __u64 rtt[MAX_PERF_SECONDS];
+    __u32 next_entry;
 };
 
 /* Map Definitions */
@@ -263,6 +270,15 @@ struct
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 	__uint(map_flags, BPF_F_NO_PREALLOC);
 } flow_state SEC(".maps");
+
+struct
+{
+    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
+    __type(key, __u32); // Keyed to the TC handle
+    __type(value, struct rotating_performance);
+    __uint(max_entries, 16384);
+
+} rtt_tracker SEC(".maps");
 
 // Mask for IPv6 flowlabel + traffic class -  used in fib lookup
 #define IPV6_FLOWINFO_MASK __cpu_to_be32(0x0FFFFFFF)
@@ -293,14 +309,6 @@ static __always_inline void map_ipv4_to_ipv6(struct in6_addr *ipv6, __be32 ipv4)
     ipv6->in6_u.u6_addr32[3] = ipv4;
 }
 
-
-static __always_inline void debug_increment_autodel(enum pping_map map)
-{
-#ifdef DEBUG
-    //bpf_debug("Increment Autodel");
-#endif
-}
-
 /*
  * Convenience function for getting the corresponding reverse flow.
  * PPing needs to keep track of flow in both directions, and sometimes
@@ -314,18 +322,6 @@ static __always_inline void reverse_flow(struct network_tuple *dest, struct netw
     dest->saddr = src->daddr;
     dest->daddr = src->saddr;
     dest->reserved = 0;
-}
-
-/*
- * Returns the number of unparsed bytes left in the packet (bytes after nh.pos)
- */
-static __always_inline __u32 remaining_pkt_payload(struct parsing_context *ctx)
-{
-    // pkt_len - (pos - data) fails because compiler transforms it to pkt_len - pos + data (pkt_len - pos not ok because value - pointer)
-    // data + pkt_len - pos fails on (data+pkt_len) - pos due to math between pkt_pointer and unbounded register
-    void *nh_pos = (ctx->tcp + 1) + (ctx->tcp->doff << 2);
-    __u32 parsed_bytes = nh_pos - ctx->data;
-    return parsed_bytes < ctx->skb_len ? ctx->skb_len - parsed_bytes : 0;
 }
 
 /*
@@ -613,7 +609,6 @@ static __always_inline int parse_packet_identifier(struct parsing_context *conte
     p_info->pid_flow_is_dfkey = is_dualflow_key(&p_info->pid.flow);
 
     reverse_flow(&p_info->reply_pid.flow, &p_info->pid.flow);
-    p_info->payload = remaining_pkt_payload(context);
 
     return 0;
 }
@@ -742,11 +737,11 @@ static __always_inline void update_forward_flowstate(struct packet_info *p_info,
             *new_flow = true;
     }
 
-    if (is_flowstate_active(f_state))
+    /*if (is_flowstate_active(f_state))
     {
         f_state->sent_pkts++;
         f_state->sent_bytes += p_info->payload;
-    }
+    }*/
 }
 
 static __always_inline void update_reverse_flowstate(void *ctx, struct packet_info *p_info,
@@ -763,8 +758,8 @@ static __always_inline void update_reverse_flowstate(void *ctx, struct packet_in
         send_flow_open_event(ctx, p_info, f_state);
     }
 
-    f_state->rec_pkts++;
-    f_state->rec_bytes += p_info->payload;
+    //f_state->rec_pkts++;
+    //f_state->rec_bytes += p_info->payload;
 }
 
 static __always_inline bool should_notify_closing(struct flow_state *f_state)
@@ -851,13 +846,14 @@ static __always_inline __u64 calculate_srtt(__u64 prev_srtt, __u64 rtt)
     return prev_srtt - (prev_srtt >> 3) + (rtt >> 3);
 }
 
+struct rotating_performance template_rtt = { 0 };
+
 /*
  * Attempt to match packet in p_info with a timestamp from flow in f_state
  */
-static __always_inline void pping_match_packet(struct flow_state *f_state, void *ctx,
+static __always_inline void pping_match_packet(struct flow_state *f_state,
                                                struct packet_info *p_info)
 {
-    struct rtt_event re = {0};
     __u64 *p_ts;
 
     if (!is_flowstate_active(f_state) || !p_info->reply_pid_valid)
@@ -870,31 +866,52 @@ static __always_inline void pping_match_packet(struct flow_state *f_state, void 
     if (!p_ts || p_info->time < *p_ts)
         return;
 
-    re.rtt = p_info->time - *p_ts;
+    __u64 rtt = p_info->time - *p_ts;
 
     // Delete timestamp entry as soon as RTT is calculated
     if (bpf_map_delete_elem(&packet_ts, &p_info->reply_pid) == 0)
     {
         __sync_fetch_and_add(&f_state->outstanding_timestamps, -1);
-        debug_increment_autodel(PPING_MAP_PACKETTS);
     }
 
-    if (f_state->min_rtt == 0 || re.rtt < f_state->min_rtt)
-        f_state->min_rtt = re.rtt;
-    f_state->srtt = calculate_srtt(f_state->srtt, re.rtt);
+    if (f_state->min_rtt == 0 || rtt < f_state->min_rtt)
+        f_state->min_rtt = rtt;
+    f_state->srtt = calculate_srtt(f_state->srtt, rtt);
 
-    // Fill event and push to perf-buffer
-    /*re.event_type = EVENT_TYPE_RTT;
-    re.timestamp = p_info->time;
-    re.min_rtt = f_state->min_rtt;
-    re.sent_pkts = f_state->sent_pkts;
-    re.sent_bytes = f_state->sent_bytes;
-    re.rec_pkts = f_state->rec_pkts;
-    re.rec_bytes = f_state->rec_bytes;
-    re.flow = p_info->pid.flow;
-    re.match_on_egress = !p_info->is_ingress;
-    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &re, sizeof(re));*/
-    bpf_debug("Send performance event (%u,%u), %u", f_state->tc_handle.majmin[1], f_state->tc_handle.majmin[0], re.rtt);
+    bpf_debug("Send performance event (%u,%u), %u", f_state->tc_handle.majmin[1], f_state->tc_handle.majmin[0], rtt);
+
+    // Update the most performance map to include this data
+    struct rotating_performance *perf = bpf_map_lookup_percpu_elem(&rtt_tracker, &f_state->tc_handle.handle, bpf_get_smp_processor_id());
+    if (perf == NULL) {        
+        //struct rotating_performance new_perf = {0};
+        bpf_map_update_elem(&rtt_tracker, &f_state->tc_handle.handle, &template_rtt, BPF_NOEXIST);
+        perf = bpf_map_lookup_percpu_elem(&rtt_tracker, &f_state->tc_handle.handle, bpf_get_smp_processor_id());
+    }
+    if (perf == NULL) {
+        bpf_debug("oops");
+        return;
+    }
+    if (perf->next_entry < MAX_PERF_SECONDS)
+        perf->rtt[perf->next_entry] = rtt;
+    perf->next_entry = (perf->next_entry + 1) % MAX_PERF_SECONDS;
+
+    for (int i=0; i<MAX_PERF_SECONDS; ++i) {
+        if (i < MAX_PERF_SECONDS)
+            bpf_debug(".. %d .. %u", i, perf->rtt[i]);
+    }
+    bpf_debug("Next %d", perf->next_entry);
+
+    /*if (perf == NULL) {
+        struct rotating_performance new_perf = {0};
+        new_perf.next_entry = 0;
+        if (bpf_map_update_elem(&rtt_tracker, &f_state->tc_handle.handle, &new_perf, BPF_NOEXIST) == 0) {
+            bpf_debug("Failed to add a new TC handle entry");
+            return;
+        }
+        perf = bpf_map_lookup_percpu_elem(&rtt_tracker, &f_state->tc_handle.handle, bpf_get_smp_processor_id());
+    }
+    perf->rtt[perf->next_entry] = rtt;
+    perf->next_entry = (perf->next_entry + 1) % MAX_PERF_SECONDS;*/
 }
 
 static __always_inline void close_and_delete_flows(void *ctx, struct packet_info *p_info,
@@ -921,10 +938,7 @@ static __always_inline void close_and_delete_flows(void *ctx, struct packet_info
     // Delete flowstate entry if neither flow is open anymore
     if (!is_flowstate_active(fw_flow) && !is_flowstate_active(rev_flow))
     {
-        if (bpf_map_delete_elem(&flow_state,
-                                get_dualflow_key_from_packet(p_info)) ==
-            0)
-            debug_increment_autodel(PPING_MAP_FLOWSTATE);
+        bpf_map_delete_elem(&flow_state,get_dualflow_key_from_packet(p_info));
     }
 }
 
@@ -954,7 +968,7 @@ static __always_inline void pping_parsed_packet(void *context, struct packet_inf
 
     rev_flow = get_reverse_flowstate_from_packet(df_state, p_info);
     update_reverse_flowstate(context, p_info, rev_flow);
-    pping_match_packet(rev_flow, context, p_info);
+    pping_match_packet(rev_flow, p_info);
 
     close_and_delete_flows(context, p_info, fw_flow, rev_flow);
 }

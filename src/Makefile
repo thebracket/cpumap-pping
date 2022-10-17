@@ -71,6 +71,7 @@ $(COMMON_USER_OBJ): common_user.c common_user.h
 #xdp_iphash_to_cpu_kern.o:  xdp_iphash_to_cpu_common.h
 #xdp_iphash_to_cpu_cmdline: xdp_iphash_to_cpu_common.h
 #xdp_iphash_to_cpu:         xdp_iphash_to_cpu_common.h
+tc_classify_kern.o: tc_classify_kern_pping.h
 
 $(TARGET): %: %_user.c $(OBJECT_LIBBPF) Makefile $(COMMON_USER_OBJ)
 	$(CC) -Wall $(CFLAGS) $(LDFLAGS) -o $@ $(COMMON_USER_OBJ) \

@@ -39,6 +39,7 @@ struct {
 	__type(value, __u32);
 } cpus_available SEC(".maps");
 
+#define DEBUG 1
 #ifdef  DEBUG
 /* Only use this for debug output. Notice output from bpf_trace_printk()
  * end-up in /sys/kernel/debug/tracing/trace_pipe
@@ -193,6 +194,7 @@ __u32 parse_ip(struct xdp_md *ctx, __u32 l3_offset, __u32 ifindex, __u16 eth_pro
 		return XDP_PASS;
 	}
 	cpu_id = ip_info->cpu;
+	//bpf_debug("XDP mapped to CPU: %u", cpu_id);
 
 	/* The CPUMAP type doesn't allow to bpf_map_lookup_elem (see
 	 * verifier.c check_map_func_compatibility()). Thus, maintain

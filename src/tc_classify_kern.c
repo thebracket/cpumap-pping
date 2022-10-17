@@ -192,7 +192,7 @@ static __always_inline void get_ipv4_addr(struct parsing_context *context, __u32
 		key->address.in6_u.u6_addr32[3] = 0;
 	}
 
-	tc_pping_start(context);
+	//tc_pping_start(context);
 }
 
 static __always_inline void get_ipv6_addr(struct parsing_context *context, __u32 ifindex_type,
@@ -220,7 +220,7 @@ static __always_inline void get_ipv6_addr(struct parsing_context *context, __u32
 		break;
 	}
 
-	tc_pping_start(context);
+	//tc_pping_start(context);
 }
 
 /* Locahost generated traffic gets assigned a classid MINOR number */
@@ -402,6 +402,7 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 			return TC_ACT_OK;
 		}
 	}
+	tc_pping_start(&context);
 
 	if (ip_info->cpu != cpu)
 	{

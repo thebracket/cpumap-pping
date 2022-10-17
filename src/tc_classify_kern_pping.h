@@ -956,10 +956,11 @@ static __always_inline void tc_pping_start(struct parsing_context *context)
     //__u32 cpu = bpf_get_smp_processor_id();
     //bpf_debug("Running on CPU: %u", cpu);
 
-    /* Populate the TCP Header */
+    // Populate the TCP Header
     if (context->protocol == ETH_P_IP)
     {
-        /* If its not TCP, stop */
+        // If its not TCP, stop
+        if (context->ip_header.iph + 1 > context->data_end) return; // Stops the error checking from crashing
         if (context->ip_header.iph->protocol != IPPROTO_TCP)
         {
             return;
@@ -968,7 +969,8 @@ static __always_inline void tc_pping_start(struct parsing_context *context)
     }
     else if (context->protocol == ETH_P_IPV6)
     {
-        /* If its not TCP, stop */
+        // If its not TCP, stop
+        if (context->ip_header.ip6h + 1 > context->data_end) return; // Stops the error checking from crashing
         if (context->ip_header.ip6h->nexthdr != IPPROTO_TCP)
         {
             return;
@@ -981,13 +983,13 @@ static __always_inline void tc_pping_start(struct parsing_context *context)
         return;
     }
 
-    /* Bail out if the packet is incomplete */
+    // Bail out if the packet is incomplete
     if (context->tcp + 1 > context->data_end)
     {
         return;
     }
 
-    /* Start the parsing process */
+    // Start the parsing process
     struct packet_info p_info = {0};
     if (parse_packet_identifier(context, &p_info) < 0)
     {

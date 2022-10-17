@@ -26,7 +26,7 @@ the rest of the setup.
 
 ## What I'm not trying to do (yet)
 
-I'm not trying to save the world, just save the projects I'm directly involved in:
+I'm not trying to save the world, just help the projects I'm directly involved in:
 
 *  A unified system for chaining these systems and not duplicating data would be awesome, but is outside of my current scope.
 * I don't really want to create a nifty plugin system, yet. With the size limits of BPF programs, I'm not even sure if that's possible.

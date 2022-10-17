@@ -185,12 +185,6 @@ static __always_inline void get_ipv4_addr(struct __sk_buff *skb, __u32 l3_offset
 	context.l3_offset = l3_offset;
 	context.ip_header.iph = iph;
 	context.skb_len = skb->len;
-	struct in6_addr src;
-	struct in6_addr dst;
-	map_ipv4_to_ipv6(&src, iph->saddr);
-	map_ipv4_to_ipv6(&dst, iph->daddr);
-	context.saddr = &src;
-	context.daddr = &dst;
 	context.protocol = ETH_P_IP;
 
 	switch (ifindex_type)
@@ -232,8 +226,6 @@ static __always_inline void get_ipv6_addr(struct __sk_buff *skb, __u32 l3_offset
 	context.l3_offset = l3_offset;
 	context.ip_header.ip6h = ip6h;
 	context.skb_len = skb->len;
-	context.saddr = &ip6h->saddr;
-	context.daddr = &ip6h->daddr;
 	context.protocol = ETH_P_IPV6;
 
 	switch (ifindex_type)

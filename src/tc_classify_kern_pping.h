@@ -55,8 +55,6 @@ struct parsing_context
     __u32 l3_offset;
     union iph_ptr ip_header;
     __u32 skb_len;
-    struct in6_addr *saddr;
-    struct in6_addr *daddr;
     __be16 protocol;
     struct tcphdr *tcp;
 };
@@ -277,6 +275,17 @@ struct
 #define S_PER_DAY (24 * 3600UL)
 
 /* Functions */
+
+/*
+ * Maps an IPv4 address into an IPv6 address according to RFC 4291 sec 2.5.5.2
+ */
+static __always_inline void map_ipv4_to_ipv6(struct in6_addr *ipv6, __be32 ipv4)
+{
+    __builtin_memset(&ipv6->in6_u.u6_addr8[0], 0x00, 10);
+    __builtin_memset(&ipv6->in6_u.u6_addr8[10], 0xff, 2);
+    ipv6->in6_u.u6_addr32[3] = ipv4;
+}
+
 
 static __always_inline void debug_increment_autodel(enum pping_map map)
 {
@@ -544,10 +553,14 @@ static __always_inline int parse_packet_identifier(struct parsing_context *conte
     if (context->protocol == ETH_P_IP)
     {
         p_info->pid.flow.ipv = AF_INET;
+        map_ipv4_to_ipv6(&p_info->pid.flow.saddr.ip, context->ip_header.iph->saddr);
+        map_ipv4_to_ipv6(&p_info->pid.flow.daddr.ip, context->ip_header.iph->daddr);
     }
     else if (context->protocol == ETH_P_IPV6)
     {
         p_info->pid.flow.ipv = AF_INET6;
+        __builtin_memcpy(&p_info->pid.flow.saddr.ip, &context->ip_header.ip6h->saddr, sizeof(struct in6_addr));
+        __builtin_memcpy(&p_info->pid.flow.daddr.ip, &context->ip_header.ip6h->daddr, sizeof(struct in6_addr));
     }
     else
     {
@@ -571,10 +584,6 @@ static __always_inline int parse_packet_identifier(struct parsing_context *conte
     p_info->reply_pid_valid = proto_info.reply_pid_valid;
     p_info->event_type = proto_info.event_type;
     p_info->event_reason = proto_info.event_reason;
-
-    // Apparently this is how you memcpy in BPF land?
-    __builtin_memcpy(&p_info->pid.flow.saddr.ip, is_wan ? context->saddr : context->daddr, sizeof(struct in6_addr));
-    __builtin_memcpy(&p_info->pid.flow.daddr.ip, is_wan ? context->daddr : context->saddr, sizeof(struct in6_addr));
 
     //bpf_debug("Source: %u : %u", p_info->pid.flow.saddr.ip.in6_u.u6_addr32[3], p_info->pid.flow.saddr.port);
     //bpf_debug("Dest: %u : %u", p_info->pid.flow.daddr.ip.in6_u.u6_addr32[3], p_info->pid.flow.daddr.port);
@@ -601,16 +610,6 @@ static __always_inline int parse_packet_identifier(struct parsing_context *conte
     p_info->payload = remaining_pkt_payload(context);
 
     return 0;
-}
-
-/*
- * Maps an IPv4 address into an IPv6 address according to RFC 4291 sec 2.5.5.2
- */
-static __always_inline void map_ipv4_to_ipv6(struct in6_addr *ipv6, __be32 ipv4)
-{
-    __builtin_memset(&ipv6->in6_u.u6_addr8[0], 0x00, 10);
-    __builtin_memset(&ipv6->in6_u.u6_addr8[10], 0xff, 2);
-    ipv6->in6_u.u6_addr32[3] = ipv4;
 }
 
 static __always_inline struct network_tuple *

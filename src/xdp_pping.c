@@ -43,22 +43,31 @@ void dump() {
     printf("[\n");
 	while ((err = bpf_map_get_next_key(fd, prev_key, &key)) == 0) {
         bpf_map_lookup_elem(fd, &key, &perf);
-        printf("{");
-        printf("\"tc\":\"%u:%u\"", key.majmin[1], key.majmin[0]);
-        __u64 total = 0;
+        __u32 total = 0;
         __u32 n = 0;
+        __u32 min = 0xFFFFFFFF;
+        __u32 max = 0;
         for (int i=0; i<MAX_PERF_SECONDS; ++i) {
             //printf("\ni=%d,rtt=0x%X\n", i, perf.rtt[i]);
             if (perf.rtt[i] != 0) {
                 total += perf.rtt[i];
                 n++;
+                if (perf.rtt[i] < min) min = perf.rtt[i];
+                if (perf.rtt[i] > max) max = perf.rtt[i];
             }
         }
         //printf("Next element: %d\n", perf.next_entry);
-        printf(", \"avg\" : %llu", total / n);
+        if (n > 0) {
+            printf("{");
+            printf("\"tc\":\"%u:%u\"", key.majmin[1], key.majmin[0]);
+            printf(", \"avg\" : %u", total / n);
+            printf(", \"min\" : %u", min);
+            printf(", \"max\" : %u", max);
+            printf(", \"samples\" : %d", n);
+            printf("},\n");
+        }
 		prev_key = &key;
 		i++;
-        printf("},\n");
 	}
 
     close(fd);

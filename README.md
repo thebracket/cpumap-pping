@@ -44,8 +44,13 @@ For example:
 {}]
 ```
 
-The fields are: `tc`, the customer queue/flow handle, and `avg` the current average RTT in ms.
-The dummy entry is present at the end to avoid comma issues.
+The fields are:
+
+* `tc` : the TC flow handle
+* `avg`: the average round-trip time (RTT) in ms.
+* `min`: the minimum round-trip-time (RTT) in ms.
+* `max`: the maximum round-trip-time (RTT) in ms.
+* `samples`: the number of samples collected since the last execution.
 
 These are collected on a rolling 60-second ringbuffer, and represent the most recent results.
 

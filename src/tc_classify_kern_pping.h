@@ -246,7 +246,7 @@ struct protocol_info
 /* 30 second rotating performance buffer, per-TC handle */
 #define MAX_PERF_SECONDS 60
 struct rotating_performance {
-    __u64 rtt[MAX_PERF_SECONDS];
+    __u32 rtt[MAX_PERF_SECONDS];
     __u32 next_entry;
 };
 
@@ -273,10 +273,12 @@ struct
 
 struct
 {
-    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, __u32); // Keyed to the TC handle
     __type(value, struct rotating_performance);
     __uint(max_entries, 16384);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+	__uint(map_flags, BPF_F_NO_PREALLOC);    
 
 } rtt_tracker SEC(".maps");
 
@@ -866,7 +868,7 @@ static __always_inline void pping_match_packet(struct flow_state *f_state,
     if (!p_ts || p_info->time < *p_ts)
         return;
 
-    __u64 rtt = p_info->time - *p_ts;
+    __u64 rtt = (p_info->time - *p_ts) / NS_PER_MS;
 
     // Delete timestamp entry as soon as RTT is calculated
     if (bpf_map_delete_elem(&packet_ts, &p_info->reply_pid) == 0)
@@ -878,14 +880,14 @@ static __always_inline void pping_match_packet(struct flow_state *f_state,
         f_state->min_rtt = rtt;
     f_state->srtt = calculate_srtt(f_state->srtt, rtt);
 
-    bpf_debug("Send performance event (%u,%u), %u", f_state->tc_handle.majmin[1], f_state->tc_handle.majmin[0], rtt);
+    bpf_debug("Send performance event (%u,%u), %llu", f_state->tc_handle.majmin[1], f_state->tc_handle.majmin[0], rtt);
 
     // Update the most performance map to include this data
-    struct rotating_performance *perf = bpf_map_lookup_percpu_elem(&rtt_tracker, &f_state->tc_handle.handle, bpf_get_smp_processor_id());
+    struct rotating_performance *perf = bpf_map_lookup_elem(&rtt_tracker, &f_state->tc_handle.handle);
     if (perf == NULL) {        
         //struct rotating_performance new_perf = {0};
         bpf_map_update_elem(&rtt_tracker, &f_state->tc_handle.handle, &template_rtt, BPF_NOEXIST);
-        perf = bpf_map_lookup_percpu_elem(&rtt_tracker, &f_state->tc_handle.handle, bpf_get_smp_processor_id());
+        perf = bpf_map_lookup_elem(&rtt_tracker, &f_state->tc_handle.handle);
     }
     if (perf == NULL) {
         bpf_debug("oops");
@@ -895,23 +897,11 @@ static __always_inline void pping_match_packet(struct flow_state *f_state,
         perf->rtt[perf->next_entry] = rtt;
     perf->next_entry = (perf->next_entry + 1) % MAX_PERF_SECONDS;
 
-    for (int i=0; i<MAX_PERF_SECONDS; ++i) {
+    /*for (int i=0; i<MAX_PERF_SECONDS; ++i) {
         if (i < MAX_PERF_SECONDS)
             bpf_debug(".. %d .. %u", i, perf->rtt[i]);
     }
-    bpf_debug("Next %d", perf->next_entry);
-
-    /*if (perf == NULL) {
-        struct rotating_performance new_perf = {0};
-        new_perf.next_entry = 0;
-        if (bpf_map_update_elem(&rtt_tracker, &f_state->tc_handle.handle, &new_perf, BPF_NOEXIST) == 0) {
-            bpf_debug("Failed to add a new TC handle entry");
-            return;
-        }
-        perf = bpf_map_lookup_percpu_elem(&rtt_tracker, &f_state->tc_handle.handle, bpf_get_smp_processor_id());
-    }
-    perf->rtt[perf->next_entry] = rtt;
-    perf->next_entry = (perf->next_entry + 1) % MAX_PERF_SECONDS;*/
+    bpf_debug("Next %d", perf->next_entry);*/
 }
 
 static __always_inline void close_and_delete_flows(void *ctx, struct packet_info *p_info,

@@ -5,6 +5,7 @@ TARGET += xdp_iphash_to_cpu
 TARGET += tc_classify
 
 CMDLINE_TOOLS := xdp_iphash_to_cpu_cmdline
+CMDLINE_TOOLS += xdp_pping
 
 TC_TARGETS += tc_queue_mapping
 
@@ -40,6 +41,7 @@ clean:
 	cd $(LIBBPF_DIR) && rm -r $(LIBBPF_INSTDIR)
 	rm -f $(TARGET)
 	rm xdp_iphash_to_cpu_cmdline
+	rm xdp_pping
 	rm -f $(XDP_OBJ)
 	rm -f $(USER_OBJ)
 	rm -f $(COMMON_USER_OBJ)

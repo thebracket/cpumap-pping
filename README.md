@@ -31,3 +31,22 @@ I'm not trying to save the world, just help the projects I'm directly involved i
 *  A unified system for chaining these systems and not duplicating data would be awesome, but is outside of my current scope.
 * I don't really want to create a nifty plugin system, yet. With the size limits of BPF programs, I'm not even sure if that's possible.
 
+## Usage
+
+1. Setup as normal for `xdp-cpumap-tc`. This is baked into LibreQoS and BracketQoS.
+2. Once running, you can run `src/xdp_pping` at any time to see current performance statistics in JSON format.
+
+For example:
+
+```json
+[
+{"tc":"1:5", "avg" : 4},
+{}]
+```
+
+The fields are: `tc`, the customer queue/flow handle, and `avg` the current average RTT in ms.
+The dummy entry is present at the end to avoid comma issues.
+
+These are collected on a rolling 60-second ringbuffer, and represent the most recent results.
+
+Run `xdp_pping` periodically (every 30 or 60 seconds, ideally)---it performs map cleanup.

@@ -253,7 +253,7 @@ struct rotating_performance {
 /* Map Definitions */
 struct
 {
-    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, struct packet_id);
     __type(value, __u64);
     __uint(max_entries, 16384);
@@ -263,7 +263,7 @@ struct
 
 struct
 {
-    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, struct network_tuple);
     __type(value, struct dual_flow_state);
     __uint(max_entries, 16384);
@@ -693,7 +693,7 @@ create_dualflow_state(struct parsing_context *ctx, struct packet_info *p_info, b
         return NULL;
     }
 
-    return bpf_map_lookup_percpu_elem(&flow_state, key, bpf_get_smp_processor_id());
+    return bpf_map_lookup_elem(&flow_state, key);
 }
 
 static __always_inline struct dual_flow_state *
@@ -864,7 +864,7 @@ static __always_inline void pping_match_packet(struct flow_state *f_state,
     if (f_state->outstanding_timestamps == 0)
         return;
 
-    p_ts = bpf_map_lookup_percpu_elem(&packet_ts, &p_info->reply_pid, bpf_get_smp_processor_id());
+    p_ts = bpf_map_lookup_elem(&packet_ts, &p_info->reply_pid);
     if (!p_ts || p_info->time < *p_ts)
         return;
 

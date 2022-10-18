@@ -3,6 +3,8 @@
 #include <bpf/bpf.h>
 #include <unistd.h>
 #include <errno.h>
+#include <linux/in.h>
+#include <linux/in6.h>
 
 //FIXME: This should be gathered via a common header...
 #define MAX_PERF_SECONDS 60
@@ -18,6 +20,28 @@ union tc_handle_type {
     __u16 majmin[2];
 };
 
+struct flow_address
+{
+    struct in6_addr ip;
+    __u16 port;
+    __u16 reserved;
+};
+
+struct network_tuple
+{
+    struct flow_address saddr;
+    struct flow_address daddr;
+    __u16 proto; // IPPROTO_TCP, IPPROTO_ICMP, QUIC etc
+    __u8 ipv;    // AF_INET or AF_INET6
+    __u8 reserved;
+};
+
+struct packet_id
+{
+    struct network_tuple flow;
+    __u32 identifier;
+};
+
 int open_bpf_map(const char *file)
 {
 	int fd;
@@ -31,10 +55,7 @@ int open_bpf_map(const char *file)
 	return fd;
 }
 
-void dump() {
-
-    int fd = open_bpf_map("/sys/fs/bpf/tc/globals/rtt_tracker");
-
+void dump(int fd) {
     union tc_handle_type key;
     union tc_handle_type *prev_key = NULL;
 	struct rotating_performance perf;
@@ -69,19 +90,50 @@ void dump() {
 		prev_key = &key;
 		i++;
 	}
-
-    close(fd);
     printf("{}]\n");
-
 }
 
 
 /* Dumps all current RTT feeds in JSON format */
-void cleanup() {
+void cleanup_rtt(int fd) {
+    int err;
+    union tc_handle_type key;
+    union tc_handle_type *prev_key = NULL;
+    while ((err = bpf_map_get_next_key(fd, prev_key, &key)) == 0) {
+        bpf_map_delete_elem(fd, &key);
+    }
+}
+
+/* Dumps all current RTT feeds in JSON format */
+void cleanup_flowstate(int fd) {
+    int err;
+    struct network_tuple key;
+    struct network_tuple *prev_key = NULL;
+    while ((err = bpf_map_get_next_key(fd, prev_key, &key)) == 0) {
+        bpf_map_delete_elem(fd, &key);
+    }
+}
+
+/* Dumps all current RTT feeds in JSON format */
+void cleanup_packet_ts(int fd) {
+    int err;
+    struct packet_id key;
+    struct packet_id *prev_key = NULL;
+    while ((err = bpf_map_get_next_key(fd, prev_key, &key)) == 0) {
+        bpf_map_delete_elem(fd, &key);
+    }
 }
 
 int main(int argc, char **argv)
 {
-    dump();
-    cleanup();
+    int rtt_tracker = open_bpf_map("/sys/fs/bpf/tc/globals/rtt_tracker");
+    int flow_state = open_bpf_map("/sys/fs/bpf/tc/globals/flow_state");
+    int packet_ts = open_bpf_map("/sys/fs/bpf/tc/globals/packet_ts");
+    dump(rtt_tracker);
+    cleanup_rtt(rtt_tracker);
+    cleanup_flowstate(flow_state);
+
+    close(rtt_tracker);
+    close(flow_state);
+    close(packet_ts);
 }

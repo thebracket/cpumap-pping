@@ -72,12 +72,6 @@ enum __attribute__((__packed__)) connection_state
     CONNECTION_STATE_CLOSED
 };
 
-enum __attribute__((__packed__)) pping_map
-{
-    PPING_MAP_FLOWSTATE = 0,
-    PPING_MAP_PACKETTS
-};
-
 /*
  * Struct that can hold the source or destination address for a flow (l3+l4).
  * Works for both IPv4 and IPv6, as IPv4 addresses can be mapped to IPv6 ones

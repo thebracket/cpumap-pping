@@ -81,10 +81,7 @@ struct ip_hash_key ip_string_to_key(char *ip_string) {
 	int res;
 	char addr[INET6_ADDRSTRLEN]; /* Temporary buffer if parsing IP */
 
-	key.address.__in6_u.__u6_addr32[0] = 0xFFFFFFFF;
-        key.address.__in6_u.__u6_addr32[1] = 0xFFFFFFFF;
-        key.address.__in6_u.__u6_addr32[2] = 0xFFFFFFFF;
-	key.address.__in6_u.__u6_addr32[3] = 0xFFFFFFFF;
+	__builtin_memset(&key.address.__in6_u.__u6_addr8, 0xFF, 16);
 	key.prefixlen = 128;
 
 	/* Does the IP string contain a prefix? */

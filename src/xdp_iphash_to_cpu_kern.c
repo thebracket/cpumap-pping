@@ -111,10 +111,7 @@ static __always_inline struct ip_hash_info *get_ip_info(struct ip_hash_key *ip)
 	if (!ip_info) {
 		struct ip_hash_key null_addr;
 	        null_addr.prefixlen = 128;
-	        null_addr.address.in6_u.u6_addr32[0] = 0xFFFFFFFF;
-	        null_addr.address.in6_u.u6_addr32[1] = 0xFFFFFFFF;
-        	null_addr.address.in6_u.u6_addr32[2] = 0xFFFFFFFF;
-	        null_addr.address.in6_u.u6_addr32[3] = 0xFFFFFFFF;
+			__builtin_memset(&null_addr.address.in6_u.u6_addr8, 0xFF, 16);
 		/* On LAN side (XDP-ingress) some uncategorized traffic are
 		 * expected, e.g. services like DHCP are running and IPs
 		 * contacting captive portal (which are not yet configured)
@@ -146,10 +143,7 @@ __u32 parse_ip(struct xdp_md *ctx, __u32 l3_offset, __u32 ifindex, __u16 eth_pro
 	/* Setup the ip_hash_key lookup structure */
 	struct ip_hash_key lookup;
         lookup.prefixlen = 128;
-        lookup.address.in6_u.u6_addr32[0] = 0xFFFFFFFF;
-        lookup.address.in6_u.u6_addr32[1] = 0xFFFFFFFF;
-        lookup.address.in6_u.u6_addr32[2] = 0xFFFFFFFF;
-        lookup.address.in6_u.u6_addr32[3] = 0xFFFFFFFF;
+		__builtin_memset(&lookup.address.in6_u.u6_addr8, 0xFF, 16);
 
 	/* WAN or LAN interface? */
 	direction_lookup = bpf_map_lookup_elem(&map_ifindex_type, &ifindex);

@@ -366,10 +366,7 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 
 	/* Get IP addr to match against */
 	hash_key.prefixlen = 128;
-	hash_key.address.in6_u.u6_addr32[0] = 0xFFFFFFFF;
-	hash_key.address.in6_u.u6_addr32[1] = 0xFFFFFFFF;
-	hash_key.address.in6_u.u6_addr32[2] = 0xFFFFFFFF;
-	hash_key.address.in6_u.u6_addr32[3] = 0xFFFFFFFF;
+	__builtin_memset(&hash_key.address.in6_u.u6_addr8, 0xFF, 16);
 	switch (context.protocol)
 	{
 	case ETH_P_IP:

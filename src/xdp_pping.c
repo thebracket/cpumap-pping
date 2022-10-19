@@ -5,42 +5,7 @@
 #include <errno.h>
 #include <linux/in.h>
 #include <linux/in6.h>
-
-//FIXME: This should be gathered via a common header...
-#define MAX_PERF_SECONDS 60
-#define NS_PER_MS 1000000UL
-
-struct rotating_performance {
-    __u32 rtt[MAX_PERF_SECONDS];
-    __u32 next_entry;
-};
-
-union tc_handle_type {
-    __u32 handle;
-    __u16 majmin[2];
-};
-
-struct flow_address
-{
-    struct in6_addr ip;
-    __u16 port;
-    __u16 reserved;
-};
-
-struct network_tuple
-{
-    struct flow_address saddr;
-    struct flow_address daddr;
-    __u16 proto; // IPPROTO_TCP, IPPROTO_ICMP, QUIC etc
-    __u8 ipv;    // AF_INET or AF_INET6
-    __u8 reserved;
-};
-
-struct packet_id
-{
-    struct network_tuple flow;
-    __u32 identifier;
-};
+#include "tc_classify_kern_pping_common.h"
 
 int open_bpf_map(const char *file)
 {

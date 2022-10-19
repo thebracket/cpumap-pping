@@ -110,8 +110,6 @@ union tc_handle_type
 
 struct flow_state
 {
-    __u64 min_rtt;
-    __u64 srtt;
     __u64 last_timestamp;
     __u32 last_id;
     __u32 outstanding_timestamps;
@@ -591,7 +589,7 @@ static __always_inline bool is_new_identifier(struct packet_id *pid, struct flow
     return pid->identifier != f_state->last_id;
 }
 
-static __always_inline bool is_rate_limited(__u64 now, __u64 last_ts, __u64 rtt)
+static __always_inline bool is_rate_limited(__u64 now, __u64 last_ts)
 {
     if (now < last_ts)
         return true;
@@ -615,9 +613,7 @@ static __always_inline void pping_timestamp_packet(struct flow_state *f_state, v
     f_state->last_id = p_info->pid.identifier;
 
     // Check rate-limit
-    if (!new_flow &&
-        is_rate_limited(p_info->time, f_state->last_timestamp,
-                        f_state->min_rtt))
+    if (!new_flow && is_rate_limited(p_info->time, f_state->last_timestamp))
         return;
 
     /*
@@ -631,20 +627,6 @@ static __always_inline void pping_timestamp_packet(struct flow_state *f_state, v
     if (bpf_map_update_elem(&packet_ts, &p_info->pid, &p_info->time,
                             BPF_NOEXIST) == 0)
         __sync_fetch_and_add(&f_state->outstanding_timestamps, 1);
-}
-
-/*
- * Calculate a smoothed rtt similar to how TCP stack does it in
- * net/ipv4/tcp_input.c/tcp_rtt_estimator().
- *
- * NOTE: Will cause roundoff errors, but if RTTs > 1000ns errors should be small
- */
-static __always_inline __u64 calculate_srtt(__u64 prev_srtt, __u64 rtt)
-{
-    if (!prev_srtt)
-        return rtt;
-    // srtt = 7/8*prev_srtt + 1/8*rtt
-    return prev_srtt - (prev_srtt >> 3) + (rtt >> 3);
 }
 
 struct rotating_performance template_rtt = {0};
@@ -674,10 +656,6 @@ static __always_inline void pping_match_packet(struct flow_state *f_state,
     {
         __sync_fetch_and_add(&f_state->outstanding_timestamps, -1);
     }
-
-    if (f_state->min_rtt == 0 || rtt < f_state->min_rtt)
-        f_state->min_rtt = rtt;
-    f_state->srtt = calculate_srtt(f_state->srtt, rtt);
 
     // Update the most performance map to include this data
     struct rotating_performance *perf = bpf_map_lookup_elem(&rtt_tracker, &f_state->tc_handle.handle);

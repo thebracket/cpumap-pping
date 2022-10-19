@@ -40,7 +40,7 @@ For example:
 
 ```json
 [
-{"tc":"1:5", "avg" : 5, "min" : 5, "max" : 5, "samples" : 1},
+{"tc":"1:5", "avg": 2.64, "min": 0.38, "max": 2.39, "samples": 12},,
 {}]
 ```
 

@@ -122,7 +122,6 @@ struct flow_state
     __u32 last_id;
     __u32 outstanding_timestamps;
     enum connection_state conn_state;
-    //enum flow_event_reason opening_reason;
     union tc_handle_type tc_handle;
     __u8 reserved[2];
 };
@@ -162,19 +161,17 @@ struct packet_info
     //__u32 payload;              // Size of packet data (excluding headers)
     struct packet_id pid;       // flow + identifier to timestamp (ex. TSval)
     struct packet_id reply_pid; // rev. flow + identifier to match against (ex. TSecr)
-    __u32 ingress_ifindex;      // Interface packet arrived on (if is_ingress, otherwise not valid)
+    //__u32 ingress_ifindex;      // Interface packet arrived on (if is_ingress, otherwise not valid)
     union
     { // The IP-level "type of service" (DSCP for IPv4, traffic class + flow label for IPv6)
         __u8 ipv4_tos;
         __be32 ipv6_tos;
     } ip_tos;
     __u16 ip_len;                        // The IPv4 total length or IPv6 payload length
-    bool is_ingress;                     // Packet on egress or ingress?
     bool pid_flow_is_dfkey;              // Used to determine which member of dualflow state to use for forward direction
     bool pid_valid;                      // identifier can be used to timestamp packet
     bool reply_pid_valid;                // reply_identifier can be used to match packet
     enum flow_event_type event_type;     // flow event triggered by packet
-    //enum flow_event_reason event_reason; // reason for triggering flow event
 };
 
 /*
@@ -187,14 +184,7 @@ struct protocol_info
     bool pid_valid;
     bool reply_pid_valid;
     enum flow_event_type event_type;
-    //enum flow_event_reason event_reason;
 };
-
-/* For the event_type members of rtt_event and flow_event */
-#define EVENT_TYPE_FLOW 1
-#define EVENT_TYPE_RTT 2
-#define EVENT_TYPE_MAP_FULL 3
-#define EVENT_TYPE_MAP_CLEAN 4
 
 /* 30 second rotating performance buffer, per-TC handle */
 #define MAX_PERF_SECONDS 60
@@ -248,10 +238,7 @@ struct
 
 #define MAX_TCP_OPTIONS 10
 
-#define NS_PER_SECOND 1000000000UL
 #define NS_PER_MS 1000000UL
-#define MS_PER_S 1000UL
-#define S_PER_DAY (24 * 3600UL)
 
 /* Functions */
 
@@ -836,9 +823,6 @@ static __always_inline void tc_pping_start(struct parsing_context *context)
         bpf_debug("Unable to parse packet identifier");
         return;
     }
-
-    p_info.is_ingress = false;
-    p_info.ingress_ifindex = 0;
 
     pping_parsed_packet(context, &p_info);
 }

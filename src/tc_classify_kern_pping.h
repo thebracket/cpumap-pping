@@ -156,7 +156,6 @@ struct packet_info
     struct packet_id pid;       // flow + identifier to timestamp (ex. TSval)
     struct packet_id reply_pid; // rev. flow + identifier to match against (ex. TSecr)
     //__u32 ingress_ifindex;      // Interface packet arrived on (if is_ingress, otherwise not valid)    
-    __u16 ip_len;                        // The IPv4 total length or IPv6 payload length
     bool pid_flow_is_dfkey;              // Used to determine which member of dualflow state to use for forward direction
     bool pid_valid;                      // identifier can be used to timestamp packet
     bool reply_pid_valid;                // reply_identifier can be used to match packet
@@ -436,16 +435,7 @@ static __always_inline int parse_packet_identifier(struct parsing_context *conte
     p_info->reply_pid_valid = proto_info.reply_pid_valid;
     p_info->event_type = proto_info.event_type;
 
-    if (p_info->pid.flow.ipv == AF_INET)
-    {
-        p_info->ip_len = bpf_ntohs(context->ip_header.iph->tot_len);
-    }
-    else if (p_info->pid.flow.ipv == AF_INET6)
-    { // IPv6
-        p_info->ip_len = bpf_ntohs(context->ip_header.ip6h->payload_len);
-    }
-    else
-    {
+    if (p_info->pid.flow.ipv == AF_INET && p_info->pid.flow.ipv == AF_INET6) {
         bpf_debug("Unknown internal protocol");
         return -1;
     }

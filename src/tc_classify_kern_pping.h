@@ -213,7 +213,7 @@ static __always_inline void reverse_flow(struct network_tuple *dest, struct netw
  */
 static __always_inline int my_memcmp(const void *s1_, const void *s2_, __u32 size)
 {
-    const __u8 *s1 = s1_, *s2 = s2_;
+    const __u8 *s1 = (const __u8 *)s1_, *s2 = (const __u8 *)s2_;
     int i;
 
     for (i = 0; i < MAX_MEMCMP_SIZE && i < size; i++)
@@ -233,8 +233,9 @@ static __always_inline bool is_dualflow_key(struct network_tuple *flow)
 static __always_inline struct flow_state *fstate_from_dfkey(struct dual_flow_state *df_state,
                                                             bool is_dfkey)
 {
-    if (!df_state)
-        return NULL;
+    if (!df_state) {
+        return (struct flow_state *)NULL;
+    }
 
     return is_dfkey ? &df_state->dir1 : &df_state->dir2;
 }
@@ -316,8 +317,7 @@ static __always_inline int parse_tcp_identifier(struct parsing_context *context,
 
     // Do not timestamp pure ACKs (no payload)
     void *nh_pos = (context->tcp + 1) + (context->tcp->doff << 2);
-    proto_info->pid_valid =
-        nh_pos - context->data < context->skb_len || context->tcp->syn;
+    proto_info->pid_valid = nh_pos - context->data < context->skb_len || context->tcp->syn;
 
     // Do not match on non-ACKs (TSecr not valid)
     proto_info->reply_pid_valid = context->tcp->ack;
@@ -465,20 +465,20 @@ create_dualflow_state(struct parsing_context *ctx, struct packet_info *p_info, b
     }
     else
     {
-        return NULL;
+        return (struct dual_flow_state *)NULL;
     }
 
-    return bpf_map_lookup_elem(&flow_state, key);
+    return (struct dual_flow_state *)bpf_map_lookup_elem(&flow_state, key);
 }
 
 static __always_inline struct dual_flow_state *
-lookup_or_create_dualflow_state(void *ctx, struct packet_info *p_info,
+lookup_or_create_dualflow_state(struct parsing_context *ctx, struct packet_info *p_info,
                                 bool *new_flow)
 {
     struct dual_flow_state *df_state;
 
     struct network_tuple *key = get_dualflow_key_from_packet(p_info);
-    df_state = bpf_map_lookup_elem(&flow_state, key);
+    df_state = (struct dual_flow_state *)bpf_map_lookup_elem(&flow_state, key);
 
     if (df_state)
     {
@@ -488,7 +488,7 @@ lookup_or_create_dualflow_state(void *ctx, struct packet_info *p_info,
     // Only try to create new state if we have a valid pid
     if (!p_info->pid_valid || p_info->event_type == FLOW_EVENT_CLOSING ||
         p_info->event_type == FLOW_EVENT_CLOSING_BOTH)
-        return NULL;
+        return (struct dual_flow_state *)NULL;
 
     return create_dualflow_state(ctx, p_info, new_flow);
 }
@@ -595,7 +595,7 @@ static __always_inline void pping_match_packet(struct flow_state *f_state,
     if (f_state->outstanding_timestamps == 0)
         return;
 
-    p_ts = bpf_map_lookup_elem(&packet_ts, &p_info->reply_pid);
+    p_ts = (__u64 *)bpf_map_lookup_elem(&packet_ts, &p_info->reply_pid);
     if (!p_ts || p_info->time < *p_ts)
         return;
 
@@ -608,12 +608,12 @@ static __always_inline void pping_match_packet(struct flow_state *f_state,
     }
 
     // Update the most performance map to include this data
-    struct rotating_performance *perf = bpf_map_lookup_elem(&rtt_tracker, &f_state->tc_handle.handle);
+    struct rotating_performance *perf = (struct rotating_performance *)bpf_map_lookup_elem(&rtt_tracker, &f_state->tc_handle.handle);
     if (perf == NULL)
     {
         // struct rotating_performance new_perf = {0};
         bpf_map_update_elem(&rtt_tracker, &f_state->tc_handle.handle, &template_rtt, BPF_NOEXIST);
-        perf = bpf_map_lookup_elem(&rtt_tracker, &f_state->tc_handle.handle);
+        perf = (struct rotating_performance *)bpf_map_lookup_elem(&rtt_tracker, &f_state->tc_handle.handle);
     }
     if (perf == NULL)
     {
@@ -656,7 +656,7 @@ static __always_inline void close_and_delete_flows(void *ctx, struct packet_info
  * timestamp of the packet, tries to match packet against previous timestamps,
  * calculates RTTs and pushes messages to userspace as appropriate.
  */
-static __always_inline void pping_parsed_packet(void *context, struct packet_info *p_info)
+static __always_inline void pping_parsed_packet(struct parsing_context *context, struct packet_info *p_info)
 {
     struct dual_flow_state *df_state;
     struct flow_state *fw_flow, *rev_flow;

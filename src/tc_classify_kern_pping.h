@@ -155,12 +155,7 @@ struct packet_info
     //__u32 payload;              // Size of packet data (excluding headers)
     struct packet_id pid;       // flow + identifier to timestamp (ex. TSval)
     struct packet_id reply_pid; // rev. flow + identifier to match against (ex. TSecr)
-    //__u32 ingress_ifindex;      // Interface packet arrived on (if is_ingress, otherwise not valid)
-    union
-    { // The IP-level "type of service" (DSCP for IPv4, traffic class + flow label for IPv6)
-        __u8 ipv4_tos;
-        __be32 ipv6_tos;
-    } ip_tos;
+    //__u32 ingress_ifindex;      // Interface packet arrived on (if is_ingress, otherwise not valid)    
     __u16 ip_len;                        // The IPv4 total length or IPv6 payload length
     bool pid_flow_is_dfkey;              // Used to determine which member of dualflow state to use for forward direction
     bool pid_valid;                      // identifier can be used to timestamp packet
@@ -444,13 +439,10 @@ static __always_inline int parse_packet_identifier(struct parsing_context *conte
     if (p_info->pid.flow.ipv == AF_INET)
     {
         p_info->ip_len = bpf_ntohs(context->ip_header.iph->tot_len);
-        p_info->ip_tos.ipv4_tos = context->ip_header.iph->tos;
     }
     else if (p_info->pid.flow.ipv == AF_INET6)
     { // IPv6
         p_info->ip_len = bpf_ntohs(context->ip_header.ip6h->payload_len);
-        p_info->ip_tos.ipv6_tos =
-            *(__be32 *)context->ip_header.ip6h & IPV6_FLOWINFO_MASK;
     }
     else
     {

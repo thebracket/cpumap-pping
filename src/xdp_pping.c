@@ -31,8 +31,8 @@ void dump(int fd) {
         bpf_map_lookup_elem(fd, &key, &perf);
         float total = 0;
         int n = 0;
-        float min = 0xFFFFFFFF;
-        float max = 0;
+        float min = 1000000.0;
+        float max = 0.0;
         for (int i=0; i<MAX_PERF_SECONDS; ++i) {
             //printf("\ni=%d,rtt=0x%X\n", i, perf.rtt[i]);
             if (perf.rtt[i] != 0) {

@@ -64,27 +64,28 @@ void dump(int fd) {
     printf("[\n");
 	while ((err = bpf_map_get_next_key(fd, prev_key, &key)) == 0) {
         bpf_map_lookup_elem(fd, &key, &perf);
-        __u32 total = 0;
-        __u32 n = 0;
-        __u32 min = 0xFFFFFFFF;
-        __u32 max = 0;
+        float total = 0;
+        int n = 0;
+        float min = 0xFFFFFFFF;
+        float max = 0;
         for (int i=0; i<MAX_PERF_SECONDS; ++i) {
             //printf("\ni=%d,rtt=0x%X\n", i, perf.rtt[i]);
             if (perf.rtt[i] != 0) {
-                total += perf.rtt[i];
+                float this_reading = (float)perf.rtt[i]/100.0f;
+                total += this_reading;
                 n++;
-                if (perf.rtt[i] < min) min = perf.rtt[i];
-                if (perf.rtt[i] > max) max = perf.rtt[i];
+                if (perf.rtt[i] < min) min = this_reading;
+                if (perf.rtt[i] > max) max = this_reading;
             }
         }
         //printf("Next element: %d\n", perf.next_entry);
         if (n > 0) {
             printf("{");
             printf("\"tc\":\"%u:%u\"", key.majmin[1], key.majmin[0]);
-            printf(", \"avg\" : %u", total / n);
-            printf(", \"min\" : %u", min);
-            printf(", \"max\" : %u", max);
-            printf(", \"samples\" : %d", n);
+            printf(", \"avg\": %.2f", total / (float)n);
+            printf(", \"min\": %.2f", min);
+            printf(", \"max\": %.2f", max);
+            printf(", \"samples\": %d", n);
             printf("},\n");
         }
 		prev_key = &key;

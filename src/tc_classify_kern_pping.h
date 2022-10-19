@@ -239,6 +239,7 @@ struct
 #define MAX_TCP_OPTIONS 10
 
 #define NS_PER_MS 1000000UL
+#define NS_PER_MS_TIMES_100 10000UL
 
 /* Functions */
 
@@ -690,7 +691,7 @@ static __always_inline void pping_match_packet(struct flow_state *f_state,
     if (!p_ts || p_info->time < *p_ts)
         return;
 
-    __u64 rtt = (p_info->time - *p_ts) / NS_PER_MS;
+    __u64 rtt = (p_info->time - *p_ts) / NS_PER_MS_TIMES_100;
 
     // Delete timestamp entry as soon as RTT is calculated
     if (bpf_map_delete_elem(&packet_ts, &p_info->reply_pid) == 0)

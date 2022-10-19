@@ -37,11 +37,6 @@
     while (0)
 #endif
 
-typedef __u64 fixpoint64;
-#define FIXPOINT_SHIFT 16
-#define DOUBLE_TO_FIXPOINT(X) ((fixpoint64)((X) * (1UL << FIXPOINT_SHIFT)))
-#define FIXPOINT_TO_UINT(X) ((X) >> FIXPOINT_SHIFT)
-
 union iph_ptr
 {
     struct iphdr *iph;
@@ -67,18 +62,6 @@ enum __attribute__((__packed__)) flow_event_type
     FLOW_EVENT_OPENING,
     FLOW_EVENT_CLOSING,
     FLOW_EVENT_CLOSING_BOTH
-};
-
-/* Detailed reason for an event. Probably can be removed. */
-enum __attribute__((__packed__)) flow_event_reason
-{
-    EVENT_REASON_NONE,
-    EVENT_REASON_SYN,
-    EVENT_REASON_SYN_ACK,
-    EVENT_REASON_FIRST_OBS_PCKT,
-    EVENT_REASON_FIN,
-    EVENT_REASON_RST,
-    EVENT_REASON_FLOW_TIMEOUT
 };
 
 enum __attribute__((__packed__)) connection_state
@@ -125,13 +108,8 @@ struct network_tuple
     __u8 reserved;
 };
 
-static __always_inline void debug_network_tuple(struct network_tuple *key) {
-    /*bpf_debug("Key: %u : %u", key->saddr.ip.in6_u.u6_addr32[3], key->saddr.port);
-    bpf_debug("     %u : %u", key->daddr.ip.in6_u.u6_addr32[3], key->daddr.port);
-    bpf_debug("     %u, %u", key->proto, key->reserved);*/
-}
-
-union tc_handle_type {
+union tc_handle_type
+{
     __u32 handle;
     __u16 majmin[2];
 };
@@ -141,14 +119,10 @@ struct flow_state
     __u64 min_rtt;
     __u64 srtt;
     __u64 last_timestamp;
-    //__u64 sent_pkts;
-    //__u64 sent_bytes;
-    //__u64 rec_pkts;
-    //__u64 rec_bytes;
     __u32 last_id;
     __u32 outstanding_timestamps;
     enum connection_state conn_state;
-    enum flow_event_reason opening_reason;
+    //enum flow_event_reason opening_reason;
     union tc_handle_type tc_handle;
     __u8 reserved[2];
 };
@@ -184,7 +158,7 @@ struct packet_id
  */
 struct packet_info
 {
-    __u64 time;                 // Arrival time of packet
+    __u64 time; // Arrival time of packet
     //__u32 payload;              // Size of packet data (excluding headers)
     struct packet_id pid;       // flow + identifier to timestamp (ex. TSval)
     struct packet_id reply_pid; // rev. flow + identifier to match against (ex. TSecr)
@@ -200,7 +174,7 @@ struct packet_info
     bool pid_valid;                      // identifier can be used to timestamp packet
     bool reply_pid_valid;                // reply_identifier can be used to match packet
     enum flow_event_type event_type;     // flow event triggered by packet
-    enum flow_event_reason event_reason; // reason for triggering flow event
+    //enum flow_event_reason event_reason; // reason for triggering flow event
 };
 
 /*
@@ -213,7 +187,7 @@ struct protocol_info
     bool pid_valid;
     bool reply_pid_valid;
     enum flow_event_type event_type;
-    enum flow_event_reason event_reason;
+    //enum flow_event_reason event_reason;
 };
 
 /* For the event_type members of rtt_event and flow_event */
@@ -222,30 +196,10 @@ struct protocol_info
 #define EVENT_TYPE_MAP_FULL 3
 #define EVENT_TYPE_MAP_CLEAN 4
 
-/*
- * An RTT event message passed when an RTT has been calculated
- * Uses explicit padding instead of packing based on recommendations in cilium's
- * BPF reference documentation at https://docs.cilium.io/en/stable/bpf/#llvm.
- */
-/*struct rtt_event
-{
-    __u64 event_type;
-    __u64 timestamp;
-    struct network_tuple flow;
-    __u32 padding;
-    __u64 rtt;
-    __u64 min_rtt;
-    __u64 sent_pkts;
-    __u64 sent_bytes;
-    __u64 rec_pkts;
-    __u64 rec_bytes;
-    bool match_on_egress;
-    __u8 reserved[7];
-};*/
-
 /* 30 second rotating performance buffer, per-TC handle */
 #define MAX_PERF_SECONDS 60
-struct rotating_performance {
+struct rotating_performance
+{
     __u32 rtt[MAX_PERF_SECONDS];
     __u32 next_entry;
 };
@@ -258,7 +212,7 @@ struct
     __type(value, __u64);
     __uint(max_entries, 16384);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
-	__uint(map_flags, BPF_F_NO_PREALLOC);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
 } packet_ts SEC(".maps");
 
 struct
@@ -268,7 +222,7 @@ struct
     __type(value, struct dual_flow_state);
     __uint(max_entries, 16384);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
-	__uint(map_flags, BPF_F_NO_PREALLOC);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
 } flow_state SEC(".maps");
 
 struct
@@ -278,7 +232,7 @@ struct
     __type(value, struct rotating_performance);
     __uint(max_entries, 16384);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
-	__uint(map_flags, BPF_F_NO_PREALLOC);    
+    __uint(map_flags, BPF_F_NO_PREALLOC);
 
 } rtt_tracker SEC(".maps");
 
@@ -324,84 +278,6 @@ static __always_inline void reverse_flow(struct network_tuple *dest, struct netw
     dest->saddr = src->daddr;
     dest->daddr = src->saddr;
     dest->reserved = 0;
-}
-
-/*
- * Send a map-full event for the map.
- * Will only trigger once every WARN_MAP_FULL_INTERVAL
- */
-static __always_inline void send_map_full_event(void *ctx, struct packet_info *p_info,
-                                                enum pping_map map)
-{
-    /*struct map_full_event me;
-
-    if (p_info->time < last_warn_time[map] ||
-        p_info->time - last_warn_time[map] < WARN_MAP_FULL_INTERVAL)
-        return;
-
-    last_warn_time[map] = p_info->time;
-
-    __builtin_memset(&me, 0, sizeof(me));
-    me.event_type = EVENT_TYPE_MAP_FULL;
-    me.timestamp = p_info->time;
-    me.flow = p_info->pid.flow;
-    me.map = map;
-
-    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &me, sizeof(me));*/
-    bpf_debug("Map full event");
-}
-
-/*
- * Send a flow opening event through the perf-buffer.
- * As these events are only sent upon receiving a reply, need to access state
- * of the reverse flow to get reason flow was opened and when the original
- * packet opening the flow was sent.
- */
-static __always_inline void send_flow_open_event(void *ctx, struct packet_info *p_info,
-                                                 struct flow_state *rev_flow)
-{
-    /*struct flow_event fe = {
-        .event_type = EVENT_TYPE_FLOW,
-        .flow_event_type = FLOW_EVENT_OPENING,
-        .source = EVENT_SOURCE_PKT_DEST,
-        .flow = p_info->pid.flow,
-        .reason = rev_flow->opening_reason,
-        .timestamp = rev_flow->last_timestamp,
-        .reserved = 0,
-    };
-
-    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &fe, sizeof(fe));*/
-    bpf_debug("Flow open event");
-}
-
-/*
- * Sends a flow-event message based on p_info.
- *
- * The rev_flow argument is used to inform if the message is for the flow
- * in the current direction or the reverse flow, and will adapt the flow and
- * source members accordingly.
- */
-static __always_inline void send_flow_event(void *ctx, struct packet_info *p_info,
-                                            bool rev_flow)
-{
-    /*struct flow_event fe = {
-        .event_type = EVENT_TYPE_FLOW,
-        .flow_event_type = p_info->event_type,
-        .reason = p_info->event_reason,
-        .timestamp = p_info->time,
-        .reserved = 0, // Make sure it's initilized
-    };
-
-    if (rev_flow) {
-        fe.flow = p_info->pid.flow;
-        fe.source = EVENT_SOURCE_PKT_SRC;
-    } else {
-        fe.flow = p_info->reply_pid.flow;
-        fe.source = EVENT_SOURCE_PKT_DEST;
-    }
-
-    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &fe, sizeof(fe));*/
-    bpf_debug("Send flow event");
 }
 
 /*
@@ -526,23 +402,18 @@ static __always_inline int parse_tcp_identifier(struct parsing_context *context,
     if (context->tcp->rst)
     {
         proto_info->event_type = FLOW_EVENT_CLOSING_BOTH;
-        proto_info->event_reason = EVENT_REASON_RST;
     }
     else if (context->tcp->fin)
     {
         proto_info->event_type = FLOW_EVENT_CLOSING;
-        proto_info->event_reason = EVENT_REASON_FIN;
     }
     else if (context->tcp->syn)
     {
         proto_info->event_type = FLOW_EVENT_OPENING;
-        proto_info->event_reason =
-            context->tcp->ack ? EVENT_REASON_SYN_ACK : EVENT_REASON_SYN;
     }
     else
     {
         proto_info->event_type = FLOW_EVENT_NONE;
-        proto_info->event_reason = EVENT_REASON_NONE;
     }
 
     *sport = bpf_ntohs(context->tcp->dest);
@@ -587,10 +458,7 @@ static __always_inline int parse_packet_identifier(struct parsing_context *conte
     p_info->reply_pid.identifier = proto_info.reply_pid;
     p_info->reply_pid_valid = proto_info.reply_pid_valid;
     p_info->event_type = proto_info.event_type;
-    p_info->event_reason = proto_info.event_reason;
 
-    //bpf_debug("Source: %u : %u", p_info->pid.flow.saddr.ip.in6_u.u6_addr32[3], p_info->pid.flow.saddr.port);
-    //bpf_debug("Dest: %u : %u", p_info->pid.flow.daddr.ip.in6_u.u6_addr32[3], p_info->pid.flow.daddr.port);
     if (p_info->pid.flow.ipv == AF_INET)
     {
         p_info->ip_len = bpf_ntohs(context->ip_header.iph->tot_len);
@@ -628,10 +496,8 @@ get_dualflow_key_from_packet(struct packet_info *p_info)
 static __always_inline void init_flowstate(struct flow_state *f_state,
                                            struct packet_info *p_info)
 {
-    //bpf_debug("Called init flowstate");
     f_state->conn_state = CONNECTION_STATE_WAITOPEN;
     f_state->last_timestamp = p_info->time;
-    f_state->opening_reason = p_info->event_type == FLOW_EVENT_OPENING ? p_info->event_reason : EVENT_REASON_FIRST_OBS_PCKT;
 }
 
 static __always_inline void init_empty_flowstate(struct flow_state *f_state)
@@ -682,14 +548,11 @@ create_dualflow_state(struct parsing_context *ctx, struct packet_info *p_info, b
     if (bpf_map_update_elem(&flow_state, key, &new_state, BPF_NOEXIST) ==
         0)
     {
-        //bpf_debug("Insert tuple");
-        debug_network_tuple(key);
         if (new_flow)
             *new_flow = true;
     }
     else
     {
-        send_map_full_event(ctx, p_info, PPING_MAP_FLOWSTATE);
         return NULL;
     }
 
@@ -702,14 +565,11 @@ lookup_or_create_dualflow_state(void *ctx, struct packet_info *p_info,
 {
     struct dual_flow_state *df_state;
 
-    struct network_tuple * key = get_dualflow_key_from_packet(p_info);
-    //bpf_debug("Search tuple");
-    debug_network_tuple(key);
+    struct network_tuple *key = get_dualflow_key_from_packet(p_info);
     df_state = bpf_map_lookup_elem(&flow_state, key);
 
     if (df_state)
     {
-        //bpf_debug("Found flowstate");
         return df_state;
     }
 
@@ -738,12 +598,6 @@ static __always_inline void update_forward_flowstate(struct packet_info *p_info,
         if (new_flow)
             *new_flow = true;
     }
-
-    /*if (is_flowstate_active(f_state))
-    {
-        f_state->sent_pkts++;
-        f_state->sent_bytes += p_info->payload;
-    }*/
 }
 
 static __always_inline void update_reverse_flowstate(void *ctx, struct packet_info *p_info,
@@ -757,16 +611,7 @@ static __always_inline void update_reverse_flowstate(void *ctx, struct packet_in
         p_info->event_type != FLOW_EVENT_CLOSING_BOTH)
     {
         f_state->conn_state = CONNECTION_STATE_OPEN;
-        send_flow_open_event(ctx, p_info, f_state);
     }
-
-    //f_state->rec_pkts++;
-    //f_state->rec_bytes += p_info->payload;
-}
-
-static __always_inline bool should_notify_closing(struct flow_state *f_state)
-{
-    return f_state->conn_state == CONNECTION_STATE_OPEN;
 }
 
 static __always_inline bool is_new_identifier(struct packet_id *pid, struct flow_state *f_state)
@@ -787,10 +632,6 @@ static __always_inline bool is_rate_limited(__u64 now, __u64 last_ts, __u64 rtt)
     if (now < last_ts)
         return true;
 
-    // RTT-based rate limit
-    // if (config.rtt_rate && rtt)
-    //	return now - last_ts < FIXPOINT_TO_UINT(config.rtt_rate * rtt);
-
     // Static rate limit
     return now - last_ts < DELAY_BETWEEN_RTT_REPORTS_MS * NS_PER_MS;
 }
@@ -803,10 +644,6 @@ static __always_inline void pping_timestamp_packet(struct flow_state *f_state, v
 {
     if (!is_flowstate_active(f_state) || !p_info->pid_valid)
         return;
-
-    /*if (config.localfilt && p_info->is_ingress &&
-        is_local_address(p_info, ctx))
-        return;*/
 
     // Check if identfier is new
     if (!new_flow && !is_new_identifier(&p_info->pid, f_state))
@@ -830,8 +667,6 @@ static __always_inline void pping_timestamp_packet(struct flow_state *f_state, v
     if (bpf_map_update_elem(&packet_ts, &p_info->pid, &p_info->time,
                             BPF_NOEXIST) == 0)
         __sync_fetch_and_add(&f_state->outstanding_timestamps, 1);
-    else
-        send_map_full_event(ctx, p_info, PPING_MAP_PACKETTS);
 }
 
 /*
@@ -848,7 +683,7 @@ static __always_inline __u64 calculate_srtt(__u64 prev_srtt, __u64 rtt)
     return prev_srtt - (prev_srtt >> 3) + (rtt >> 3);
 }
 
-struct rotating_performance template_rtt = { 0 };
+struct rotating_performance template_rtt = {0};
 
 /*
  * Attempt to match packet in p_info with a timestamp from flow in f_state
@@ -880,28 +715,22 @@ static __always_inline void pping_match_packet(struct flow_state *f_state,
         f_state->min_rtt = rtt;
     f_state->srtt = calculate_srtt(f_state->srtt, rtt);
 
-    bpf_debug("Send performance event (%u,%u), %llu", f_state->tc_handle.majmin[1], f_state->tc_handle.majmin[0], rtt);
-
     // Update the most performance map to include this data
     struct rotating_performance *perf = bpf_map_lookup_elem(&rtt_tracker, &f_state->tc_handle.handle);
-    if (perf == NULL) {        
-        //struct rotating_performance new_perf = {0};
+    if (perf == NULL)
+    {
+        // struct rotating_performance new_perf = {0};
         bpf_map_update_elem(&rtt_tracker, &f_state->tc_handle.handle, &template_rtt, BPF_NOEXIST);
         perf = bpf_map_lookup_elem(&rtt_tracker, &f_state->tc_handle.handle);
     }
-    if (perf == NULL) {
-        bpf_debug("oops");
+    if (perf == NULL)
+    {
+        bpf_debug("WARN: performance map insert failed.");
         return;
     }
     if (perf->next_entry < MAX_PERF_SECONDS)
         perf->rtt[perf->next_entry] = rtt;
     perf->next_entry = (perf->next_entry + 1) % MAX_PERF_SECONDS;
-
-    /*for (int i=0; i<MAX_PERF_SECONDS; ++i) {
-        if (i < MAX_PERF_SECONDS)
-            bpf_debug(".. %d .. %u", i, perf->rtt[i]);
-    }
-    bpf_debug("Next %d", perf->next_entry);*/
 }
 
 static __always_inline void close_and_delete_flows(void *ctx, struct packet_info *p_info,
@@ -912,23 +741,19 @@ static __always_inline void close_and_delete_flows(void *ctx, struct packet_info
     if (p_info->event_type == FLOW_EVENT_CLOSING ||
         p_info->event_type == FLOW_EVENT_CLOSING_BOTH)
     {
-        if (should_notify_closing(fw_flow))
-            send_flow_event(ctx, p_info, false);
         fw_flow->conn_state = CONNECTION_STATE_CLOSED;
     }
 
     // Reverse flow closing
     if (p_info->event_type == FLOW_EVENT_CLOSING_BOTH)
     {
-        if (should_notify_closing(rev_flow))
-            send_flow_event(ctx, p_info, true);
         rev_flow->conn_state = CONNECTION_STATE_CLOSED;
     }
 
     // Delete flowstate entry if neither flow is open anymore
     if (!is_flowstate_active(fw_flow) && !is_flowstate_active(rev_flow))
     {
-        bpf_map_delete_elem(&flow_state,get_dualflow_key_from_packet(p_info));
+        bpf_map_delete_elem(&flow_state, get_dualflow_key_from_packet(p_info));
     }
 }
 
@@ -948,7 +773,7 @@ static __always_inline void pping_parsed_packet(void *context, struct packet_inf
     df_state = lookup_or_create_dualflow_state(context, p_info, &new_flow);
     if (!df_state)
     {
-        //bpf_debug("No flow state - stop");
+        // bpf_debug("No flow state - stop");
         return;
     }
 
@@ -967,13 +792,14 @@ static __always_inline void pping_parsed_packet(void *context, struct packet_inf
 static __always_inline void tc_pping_start(struct parsing_context *context)
 {
     //__u32 cpu = bpf_get_smp_processor_id();
-    //bpf_debug("Running on CPU: %u", cpu);
+    // bpf_debug("Running on CPU: %u", cpu);
 
     // Populate the TCP Header
     if (context->protocol == ETH_P_IP)
     {
         // If its not TCP, stop
-        if (context->ip_header.iph + 1 > context->data_end) return; // Stops the error checking from crashing
+        if (context->ip_header.iph + 1 > context->data_end)
+            return; // Stops the error checking from crashing
         if (context->ip_header.iph->protocol != IPPROTO_TCP)
         {
             return;
@@ -983,7 +809,8 @@ static __always_inline void tc_pping_start(struct parsing_context *context)
     else if (context->protocol == ETH_P_IPV6)
     {
         // If its not TCP, stop
-        if (context->ip_header.ip6h + 1 > context->data_end) return; // Stops the error checking from crashing
+        if (context->ip_header.ip6h + 1 > context->data_end)
+            return; // Stops the error checking from crashing
         if (context->ip_header.ip6h->nexthdr != IPPROTO_TCP)
         {
             return;

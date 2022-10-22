@@ -98,6 +98,7 @@ int main(int argc, char **argv)
     dump(rtt_tracker);
     cleanup_rtt(rtt_tracker);
     cleanup_flowstate(flow_state);
+    cleanup_packet_ts(packet_ts);
 
     close(rtt_tracker);
     close(flow_state);

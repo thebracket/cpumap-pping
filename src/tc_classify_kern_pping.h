@@ -725,7 +725,7 @@ static __always_inline void tc_pping_start(struct parsing_context *context)
     struct packet_info p_info = {0};
     if (parse_packet_identifier(context, &p_info) < 0)
     {
-        bpf_debug("Unable to parse packet identifier");
+        //bpf_debug("Unable to parse packet identifier");
         return;
     }
 

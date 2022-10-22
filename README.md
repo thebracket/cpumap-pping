@@ -1,6 +1,6 @@
-# cpumap-pping-hackjob
+# cpumap-pping
 
-> This is an experiment, please don't rely on it!
+> This project is pretty solid now.
 
 The purpose of this project is to merge:
 

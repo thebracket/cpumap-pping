@@ -1,3 +1,7 @@
+/*
+Original file from the xdp-cpumap-tc project (https://github.com/xdp-project/xdp-cpumap-tc).
+My modificiations are Copyright 2022, Herbert Wolverson (Bracket Productions)
+*/
 #define DEBUG 1
 /* SPDX-License-Identifier: GPL-2.0 */
 #include <linux/bpf.h>

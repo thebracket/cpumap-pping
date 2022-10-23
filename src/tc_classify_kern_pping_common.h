@@ -1,3 +1,16 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+Based on the GPLv2 xdp-pping project 
+(https://github.com/xdp-project/bpf-examples/tree/master/pping)
+
+xdp_pping is based on the ideas in Dr. Kathleen Nichols' pping
+utility: https://github.com/pollere/pping
+   and the papers around "Listening to Networks":
+http://www.pollere.net/Pdfdocs/ListeningGoog.pdf
+
+My modifications are Copyright 2022, Herbert Wolverson
+(Bracket Productions)
+*/
 /* Shared structures between userspace and kernel space
  */
 #ifndef __TC_CLASSIFY_KERN_PPING_COMMON_H

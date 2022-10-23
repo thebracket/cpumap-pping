@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+Copyright 2022 Herbert Wolverson
+Licensed under the GNU General Purpose License 2
+See LICENSE file for details.
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <bpf/bpf.h>

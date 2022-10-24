@@ -32,6 +32,7 @@ My modifications are Copyright 2022, Herbert Wolverson
 #include <bpf/bpf_endian.h>
 #include <stdbool.h>
 #include "tc_classify_kern_pping_common.h"
+#include "maximums.h"
 
 #define MAX_MEMCMP_SIZE 128
 #define DELAY_BETWEEN_RTT_REPORTS_MS 1000
@@ -155,7 +156,7 @@ struct
     __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, struct packet_id);
     __type(value, __u64);
-    __uint(max_entries, 16384);
+    __uint(max_entries, MAX_PACKETS);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } packet_ts SEC(".maps");
@@ -165,7 +166,7 @@ struct
     __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, struct network_tuple);
     __type(value, struct dual_flow_state);
-    __uint(max_entries, 16384);
+    __uint(max_entries, MAX_FLOWS);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } flow_state SEC(".maps");
@@ -175,7 +176,7 @@ struct
     __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, __u32); // Keyed to the TC handle
     __type(value, struct rotating_performance);
-    __uint(max_entries, 16384);
+    __uint(max_entries, IP_HASH_ENTRIES_MAX);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
     __uint(map_flags, BPF_F_NO_PREALLOC);
 

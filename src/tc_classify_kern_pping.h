@@ -152,22 +152,22 @@ struct protocol_info
 /* Map Definitions */
 struct
 {
-    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, struct packet_id);
     __type(value, __u64);
     __uint(max_entries, MAX_PACKETS);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
-    __uint(map_flags, BPF_F_NO_PREALLOC);
+//    __uint(map_flags, BPF_F_NO_PREALLOC);
 } packet_ts SEC(".maps");
 
 struct
 {
-    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, struct network_tuple);
     __type(value, struct dual_flow_state);
     __uint(max_entries, MAX_FLOWS);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
-    __uint(map_flags, BPF_F_NO_PREALLOC);
+//    __uint(map_flags, BPF_F_NO_PREALLOC);
 } flow_state SEC(".maps");
 
 struct

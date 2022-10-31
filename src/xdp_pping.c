@@ -76,37 +76,11 @@ void cleanup_rtt(int fd) {
     }
 }
 
-/* Dumps all current RTT feeds in JSON format */
-void cleanup_flowstate(int fd) {
-    int err;
-    struct network_tuple key;
-    struct network_tuple *prev_key = NULL;
-    while ((err = bpf_map_get_next_key(fd, prev_key, &key)) == 0) {
-        bpf_map_delete_elem(fd, &key);
-    }
-}
-
-/* Dumps all current RTT feeds in JSON format */
-void cleanup_packet_ts(int fd) {
-    int err;
-    struct packet_id key;
-    struct packet_id *prev_key = NULL;
-    while ((err = bpf_map_get_next_key(fd, prev_key, &key)) == 0) {
-        bpf_map_delete_elem(fd, &key);
-    }
-}
-
 int main(int argc, char **argv)
 {
     int rtt_tracker = open_bpf_map("/sys/fs/bpf/tc/globals/rtt_tracker");
-    int flow_state = open_bpf_map("/sys/fs/bpf/tc/globals/flow_state");
-    int packet_ts = open_bpf_map("/sys/fs/bpf/tc/globals/packet_ts");
     dump(rtt_tracker);
     cleanup_rtt(rtt_tracker);
-    cleanup_flowstate(flow_state);
-    cleanup_packet_ts(packet_ts);
 
     close(rtt_tracker);
-    close(flow_state);
-    close(packet_ts);
 }

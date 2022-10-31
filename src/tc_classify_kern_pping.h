@@ -35,7 +35,6 @@ My modifications are Copyright 2022, Herbert Wolverson
 #include "maximums.h"
 
 #define MAX_MEMCMP_SIZE 128
-#define DELAY_BETWEEN_RTT_REPORTS_MS 1000
 
 #define DEBUG 1
 #ifdef DEBUG
@@ -562,7 +561,8 @@ static __always_inline bool is_rate_limited(__u64 now, __u64 last_ts)
         return true;
 
     // Static rate limit
-    return now - last_ts < DELAY_BETWEEN_RTT_REPORTS_MS * NS_PER_MS;
+    //return now - last_ts < DELAY_BETWEEN_RTT_REPORTS_MS * NS_PER_MS;
+    return false; // Max firehose drinking speed
 }
 
 /*
@@ -602,7 +602,8 @@ struct rotating_performance template_rtt = {0};
  * Attempt to match packet in p_info with a timestamp from flow in f_state
  */
 static __always_inline void pping_match_packet(struct flow_state *f_state,
-                                               struct packet_info *p_info)
+                                               struct packet_info *p_info,
+                                               struct rotating_performance *perf)
 {
     __u64 *p_ts;
 
@@ -625,7 +626,8 @@ static __always_inline void pping_match_packet(struct flow_state *f_state,
     }
 
     // Update the most performance map to include this data
-    struct rotating_performance *perf = (struct rotating_performance *)bpf_map_lookup_elem(&rtt_tracker, &f_state->tc_handle.handle);
+    //struct rotating_performance *perf = (struct rotating_performance *)bpf_map_lookup_elem(&rtt_tracker, &f_state->tc_handle.handle);
+    // We already looked this up
     if (perf == NULL)
     {
         // struct rotating_performance new_perf = {0};
@@ -673,7 +675,7 @@ static __always_inline void close_and_delete_flows(void *ctx, struct packet_info
  * timestamp of the packet, tries to match packet against previous timestamps,
  * calculates RTTs and pushes messages to userspace as appropriate.
  */
-static __always_inline void pping_parsed_packet(struct parsing_context *context, struct packet_info *p_info)
+static __always_inline void pping_parsed_packet(struct parsing_context *context, struct packet_info *p_info, struct rotating_performance *perf)
 {
     struct dual_flow_state *df_state;
     struct flow_state *fw_flow, *rev_flow;
@@ -692,7 +694,7 @@ static __always_inline void pping_parsed_packet(struct parsing_context *context,
 
     rev_flow = get_reverse_flowstate_from_packet(df_state, p_info);
     update_reverse_flowstate(context, p_info, rev_flow);
-    pping_match_packet(rev_flow, p_info);
+    pping_match_packet(rev_flow, p_info, perf);
 
     close_and_delete_flows(context, p_info, fw_flow, rev_flow);
 }
@@ -700,8 +702,16 @@ static __always_inline void pping_parsed_packet(struct parsing_context *context,
 /* Entry poing for running pping in the tc context */
 static __always_inline void tc_pping_start(struct parsing_context *context)
 {
-    //__u32 cpu = bpf_get_smp_processor_id();
-    // bpf_debug("Running on CPU: %u", cpu);
+    // Check to see if we can store perf info. Bail if we've hit the limit.
+    // Copying occurs because otherwise the validator complains.
+    __u32 tmp = context->tc_handle;
+    struct rotating_performance *perf = (struct rotating_performance *)bpf_map_lookup_elem(&rtt_tracker, &tmp);
+    if (perf) {
+        if (perf->next_entry == MAX_PERF_SECONDS-1) {
+            //bpf_debug("Flow has max samples. Not sampling further until next reset.");
+            return;
+        }
+    }
 
     // Populate the TCP Header
     if (context->protocol == ETH_P_IP)
@@ -746,7 +756,7 @@ static __always_inline void tc_pping_start(struct parsing_context *context)
         return;
     }
 
-    pping_parsed_packet(context, &p_info);
+    pping_parsed_packet(context, &p_info, perf);
 }
 
 #endif /* __TC_CLASSIFY_KERN_PPING_H */

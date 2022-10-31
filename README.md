@@ -42,7 +42,7 @@ For example:
 
 ```json
 [
-{"tc":"1:5", "avg": 2.64, "min": 0.38, "max": 2.39, "samples": 12},
+{"tc":"1:5", "avg": 2.64, "min": 0.38, "max": 2.39, "median": 2.03, "samples": 12},
 {}]
 ```
 
@@ -52,6 +52,7 @@ The fields are:
 * `avg`: the average round-trip time (RTT) in ms.
 * `min`: the minimum round-trip-time (RTT) in ms.
 * `max`: the maximum round-trip-time (RTT) in ms.
+* `median`: the median of the tracked RTT times, in ms. Generally preferable because it ignores outliers.
 * `samples`: the number of samples collected since the last execution.
 
 These are collected on a rolling 60-second ringbuffer, and represent the most recent results.

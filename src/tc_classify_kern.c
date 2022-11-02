@@ -403,8 +403,6 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 			return TC_ACT_OK;
 		}
 	}
-	context.tc_handle = ip_info->tc_handle;
-	tc_pping_start(&context);
 
 	if (ip_info->cpu != cpu)
 	{
@@ -432,6 +430,9 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 
 	// bpf_debug("Lookup IP:%x prio:0x%x tc_handle:0x%x\n",
 	//	  ipv4, skb->priority, ip_info->tc_handle);
+
+	context.tc_handle = ip_info->tc_handle;
+	tc_pping_start(&context);
 
 	// return TC_ACT_OK;
 	return action;

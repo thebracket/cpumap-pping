@@ -32,8 +32,8 @@ int compare( const void* a, const void* b)
 }
 
 void dump(int fd) {
-    union tc_handle_type key;
-    union tc_handle_type *prev_key = NULL;
+    __u32 key;
+    __u32 *prev_key = NULL;
 	struct rotating_performance perf;
 	int err;
 	int i = 0;
@@ -44,6 +44,8 @@ void dump(int fd) {
         // Work on a local copy and sort it to help with obtaining the median
         memcpy(&rtt, &perf.rtt, MAX_PERF_SECONDS * sizeof(__u32));
         qsort(&rtt, MAX_PERF_SECONDS, sizeof(__u32), compare);
+        union tc_handle_type handle;
+        handle.handle = perf.tc_handle;
         float total = 0;
         int n = 0;
         float min = 1000000.0;
@@ -61,7 +63,7 @@ void dump(int fd) {
         //printf("Next element: %d\n", perf.next_entry);
         if (n > 0) {
             printf("{");
-            printf("\"tc\":\"%u:%u\"", key.majmin[1], key.majmin[0]);
+            printf("\"tc\":\"%u:%u\"", handle.majmin[1], handle.majmin[0]);
             printf(", \"avg\": %.2f", total / (float)n);
             printf(", \"min\": %.2f", min);
             printf(", \"max\": %.2f", max);

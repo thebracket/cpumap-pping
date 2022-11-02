@@ -68,6 +68,7 @@ struct packet_id
 /* Ring-buffer of performance readings for each TC handle */
 struct rotating_performance
 {
+    __u32 tc_handle;
     __u32 rtt[MAX_PERF_SECONDS];
     __u32 next_entry;
 };

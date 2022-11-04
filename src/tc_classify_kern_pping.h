@@ -103,7 +103,6 @@ struct flow_state
     __u32 last_id;
     __u32 outstanding_timestamps;
     enum connection_state conn_state;
-    union tc_handle_type tc_handle;
     __u8 reserved[2];
 };
 
@@ -208,9 +207,11 @@ struct
  */
 static __always_inline void map_ipv4_to_ipv6(struct in6_addr *ipv6, __be32 ipv4)
 {
-    __builtin_memset(&ipv6->in6_u.u6_addr8[0], 0x00, 10);
-    __builtin_memset(&ipv6->in6_u.u6_addr8[10], 0xff, 2);
-    ipv6->in6_u.u6_addr32[3] = ipv4;
+    __builtin_memset(&ipv6->in6_u.u6_addr8[0], 0x00, 16);
+    __builtin_memcpy(&ipv6->in6_u.u6_addr32[3], &ipv4, sizeof(__u32));
+    //__builtin_memset(&ipv6->in6_u.u6_addr8[0], 0x00, 10);
+    //__builtin_memset(&ipv6->in6_u.u6_addr8[10], 0xff, 2);
+    //ipv6->in6_u.u6_addr32[3] = ipv4;
 }
 
 /*
@@ -478,8 +479,8 @@ create_dualflow_state(struct parsing_context *ctx, struct packet_info *p_info, b
     struct dual_flow_state new_state = {0};
 
     init_dualflow_state(&new_state, p_info);
-    new_state.dir1.tc_handle.handle = ctx->tc_handle;
-    new_state.dir2.tc_handle.handle = ctx->tc_handle;
+    //new_state.dir1.tc_handle.handle = ctx->tc_handle;
+    //new_state.dir2.tc_handle.handle = ctx->tc_handle;
 
     if (bpf_map_update_elem(&flow_state, key, &new_state, BPF_NOEXIST) ==
         0)
@@ -638,16 +639,8 @@ static __always_inline void pping_match_packet(struct flow_state *f_state,
     bpf_debug("Adding state");
     debug_handle(f_state->tc_handle.handle);
     #endif
-    if (check_tc_handle != f_state->tc_handle.handle) {
-        bpf_debug("Flow state handle does not match active handle - bailing");
-        return;
-    }
-    struct rotating_performance *perf = (struct rotating_performance *)bpf_map_lookup_elem(&rtt_tracker, &f_state->tc_handle.handle);
+    struct rotating_performance *perf = (struct rotating_performance *)bpf_map_lookup_elem(&rtt_tracker, &check_tc_handle);
     if (perf == NULL) return;
-    if (check_tc_handle != perf->tc_handle) {
-        bpf_debug("RTT tracker handle does not match active handle - bailing");
-        return;
-    }
     __sync_fetch_and_add(&perf->next_entry, 1);
     __u32 next_entry = perf->next_entry;
     if (next_entry < MAX_PERF_SECONDS) {

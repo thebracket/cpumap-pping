@@ -78,6 +78,7 @@ struct parsing_context
     __be16 protocol;
     struct tcphdr *tcp;
     __u32 tc_handle;
+    struct in6_addr local_address;
 };
 
 /* Event type recorded for a packet flow */
@@ -760,6 +761,7 @@ static __always_inline void tc_pping_start(struct parsing_context *context)
     {
         struct rotating_performance new_perf = {0};
         new_perf.tc_handle = active_tc_handle;
+        __builtin_memcpy(&new_perf.local_address.in6_u.u6_addr8, &context->local_address.in6_u.u6_addr8, 16);
         if (bpf_map_update_elem(&rtt_tracker, &active_tc_handle, &new_perf, BPF_NOEXIST) != 0) return;
     }
 

@@ -42,7 +42,7 @@ For example:
 
 ```json
 [
-{"tc":"1:5", "avg": 2.64, "min": 0.38, "max": 2.39, "median": 2.03, "samples": 12},
+{"tc":"1:5", "avg": 2.64, "min": 0.38, "max": 2.39, "median": 2.03, "samples": 12, "localIp": "100.64.1.3"},
 {}]
 ```
 
@@ -54,6 +54,7 @@ The fields are:
 * `max`: the maximum round-trip-time (RTT) in ms.
 * `median`: the median of the tracked RTT times, in ms. Generally preferable because it ignores outliers.
 * `samples`: the number of samples collected since the last execution.
+* `localIp` : the local (TC mapped) IP address of the target.
 
 These are collected on a rolling 60-second ringbuffer, and represent the most recent results.
 

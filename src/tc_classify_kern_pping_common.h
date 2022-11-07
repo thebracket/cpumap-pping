@@ -71,6 +71,7 @@ struct rotating_performance
     __u32 tc_handle;
     __u32 rtt[MAX_PERF_SECONDS];
     __u32 next_entry;
+    struct in6_addr local_address;
 };
 
 #endif /* __TC_CLASSIFY_KERN_PPING_COMMON_H */

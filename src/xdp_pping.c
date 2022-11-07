@@ -9,8 +9,7 @@ See LICENSE file for details.
 #include <bpf/bpf.h>
 #include <unistd.h>
 #include <errno.h>
-#include <linux/in.h>
-#include <linux/in6.h>
+#include <arpa/inet.h>
 #include "tc_classify_kern_pping_common.h"
 
 int open_bpf_map(const char *file)
@@ -29,6 +28,18 @@ int open_bpf_map(const char *file)
 int compare( const void* a, const void* b)
 {
      return *((__u32*)a)-*((__u32*)b);
+}
+
+void print_ipv4or6(struct in6_addr *ip) {
+    char ip_txt[INET6_ADDRSTRLEN] = {0};
+    if (ip->__in6_u.__u6_addr32[0] == 0xFFFFFFFF && ip->__in6_u.__u6_addr32[1] == 0xFFFFFFFF && ip->__in6_u.__u6_addr32[2] == 0xFFFFFFFF) {
+		// It's IPv4
+		inet_ntop(AF_INET, &ip->__in6_u.__u6_addr32[3], ip_txt, sizeof(ip_txt));
+	} else {
+		// It's IPv6
+		inet_ntop(AF_INET6, ip, ip_txt, sizeof(ip_txt));
+	}
+    printf("%s", ip_txt);
 }
 
 void dump(int fd) {
@@ -69,6 +80,9 @@ void dump(int fd) {
             printf(", \"max\": %.2f", max);
             printf(", \"median\": %.2f", median);
             printf(", \"samples\": %d", n);
+            printf(", \"localIp\": \"");
+            print_ipv4or6(&perf.local_address);
+            printf("\"");
             printf("},\n");
         }
 		prev_key = &key;

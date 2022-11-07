@@ -387,6 +387,7 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 		return TC_ACT_OK;
 	}
 
+	__builtin_memcpy(&context.local_address.in6_u.u6_addr8, &hash_key.address.in6_u.u6_addr8, 16);
 	ip_info = bpf_map_lookup_elem(&map_ip_hash, &hash_key);
 	if (!ip_info)
 	{

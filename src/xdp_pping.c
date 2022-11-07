@@ -87,26 +87,18 @@ void dump(int fd) {
         }
 		prev_key = &key;
 		i++;
+
+        // Rather than delete, recycle!
+        perf.next_entry = 0;
+        memset(&perf.rtt, 0, sizeof(__u32) * MAX_PERF_SECONDS);
+        bpf_map_update_elem(fd, &key, &perf, BPF_EXIST);
 	}
     printf("{}]\n");
-}
-
-
-/* Dumps all current RTT feeds in JSON format */
-void cleanup_rtt(int fd) {
-    int err;
-    union tc_handle_type key;
-    union tc_handle_type *prev_key = NULL;
-    while ((err = bpf_map_get_next_key(fd, prev_key, &key)) == 0) {
-        bpf_map_delete_elem(fd, &key);
-    }
 }
 
 int main(int argc, char **argv)
 {
     int rtt_tracker = open_bpf_map("/sys/fs/bpf/tc/globals/rtt_tracker");
     dump(rtt_tracker);
-    cleanup_rtt(rtt_tracker);
-
     close(rtt_tracker);
 }

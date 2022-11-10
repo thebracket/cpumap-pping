@@ -66,40 +66,41 @@ void dump(int fd) {
     printf("[\n");
     __u32 rtt[MAX_PERF_SECONDS];
 	while ((err = bpf_map_get_next_key(fd, prev_key, &key)) == 0) {
-        bpf_map_lookup_elem(fd, &key, &perf);
-        // Work on a local copy and sort it to help with obtaining the median
-        memcpy(&rtt, &perf.rtt, MAX_PERF_SECONDS * sizeof(__u32));
-        qsort(&rtt, MAX_PERF_SECONDS, sizeof(__u32), compare);
-        union tc_handle_type handle;
-        handle.handle = perf.tc_handle;
-        float total = 0;
-        int n = 0;
-        float min = 1000000.0;
-        float max = 0.0;
-        for (int i=0; i<perf.next_entry; ++i) {
-            if (rtt[i] != 0) {
-                float this_reading = (float)rtt[i]/100.0f;
-                total += this_reading;
-                n++;
-                if (rtt[i] < min) min = this_reading;
-                if (rtt[i] > max) max = this_reading;
+        if (bpf_map_lookup_elem(fd, &key, &perf) > -1) {
+            // Work on a local copy and sort it to help with obtaining the median
+            memcpy(&rtt, &perf.rtt, MAX_PERF_SECONDS * sizeof(__u32));
+            qsort(&rtt, MAX_PERF_SECONDS, sizeof(__u32), compare);
+            union tc_handle_type handle;
+            handle.handle = perf.tc_handle;
+            float total = 0;
+            int n = 0;
+            float min = 1000000.0;
+            float max = 0.0;
+            for (int i=0; i<perf.next_entry; ++i) {
+                if (rtt[i] != 0) {
+                    float this_reading = (float)rtt[i]/100.0f;
+                    total += this_reading;
+                    n++;
+                    if (rtt[i] < min) min = this_reading;
+                    if (rtt[i] > max) max = this_reading;
+                }
             }
-        }
-        float median = (float)rtt[(perf.next_entry - n) + MAX_PERF_SECONDS/2]/100.0;
-        //printf("Next element: %d\n", perf.next_entry);
-        if (n > 0) {
-            insert_first(perf.tc_handle);
-            printf("{");
-            printf("\"tc\":\"%u:%u\"", handle.majmin[1], handle.majmin[0]);
-            printf(", \"avg\": %.2f", total / (float)n);
-            printf(", \"min\": %.2f", min);
-            printf(", \"max\": %.2f", max);
-            printf(", \"median\": %.2f", median);
-            printf(", \"samples\": %d", n);
-            printf(", \"localIp\": \"");
-            print_ipv4or6(&perf.local_address);
-            printf("\"");
-            printf("},\n");
+            float median = (float)rtt[(perf.next_entry - n) + MAX_PERF_SECONDS/2]/100.0;
+            //printf("Next element: %d\n", perf.next_entry);
+            if (n > 0) {
+                insert_first(perf.tc_handle);
+                printf("{");
+                printf("\"tc\":\"%u:%u\"", handle.majmin[1], handle.majmin[0]);
+                printf(", \"avg\": %.2f", total / (float)n);
+                printf(", \"min\": %.2f", min);
+                printf(", \"max\": %.2f", max);
+                printf(", \"median\": %.2f", median);
+                printf(", \"samples\": %d", n);
+                printf(", \"localIp\": \"");
+                print_ipv4or6(&perf.local_address);
+                printf("\"");
+                printf("},\n");
+            }
         }
 		prev_key = &key;
 		i++;

@@ -12,6 +12,21 @@ See LICENSE file for details.
 #include <arpa/inet.h>
 #include "tc_classify_kern_pping_common.h"
 
+// Very primitive linked list
+struct key_node {
+    __u32 key;
+    struct key_node *next;
+};
+
+struct key_node *head = NULL;
+
+void insert_first(__u32 key) {
+    struct key_node *link = (struct key_node*) malloc(sizeof(struct key_node));
+    link->key = key;
+    link->next = head;
+    head = link;
+}
+
 int open_bpf_map(const char *file)
 {
 	int fd;
@@ -73,6 +88,7 @@ void dump(int fd) {
         float median = (float)rtt[(perf.next_entry - n) + MAX_PERF_SECONDS/2]/100.0;
         //printf("Next element: %d\n", perf.next_entry);
         if (n > 0) {
+            insert_first(perf.tc_handle);
             printf("{");
             printf("\"tc\":\"%u:%u\"", handle.majmin[1], handle.majmin[0]);
             printf(", \"avg\": %.2f", total / (float)n);
@@ -87,18 +103,30 @@ void dump(int fd) {
         }
 		prev_key = &key;
 		i++;
-
-        // Rather than delete, recycle!
-        perf.next_entry = 0;
-        memset(&perf.rtt, 0, sizeof(__u32) * MAX_PERF_SECONDS);
-        bpf_map_update_elem(fd, &key, &perf, BPF_EXIST);
 	}
     printf("{}]\n");
+}
+
+void recycle(int fd) 
+{
+    struct rotating_performance perf;
+    struct key_node *ptr = head;
+    while (ptr != NULL) {
+        __u32 key = ptr->key;
+        //printf("Recycling %u\n", key);
+        if (bpf_map_lookup_elem(fd, &key, &perf) > -1) {
+            perf.next_entry = 0;
+            memset(&perf.rtt, 0, sizeof(__u32) * MAX_PERF_SECONDS);
+            bpf_map_update_elem(fd, &key, &perf, BPF_EXIST);
+        }
+        ptr = ptr->next;
+    }
 }
 
 int main(int argc, char **argv)
 {
     int rtt_tracker = open_bpf_map("/sys/fs/bpf/tc/globals/rtt_tracker");
     dump(rtt_tracker);
+    recycle(rtt_tracker);
     close(rtt_tracker);
 }

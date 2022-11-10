@@ -123,10 +123,22 @@ void recycle(int fd)
     }
 }
 
+void free_memory() {
+    struct key_node *ptr = head;
+    struct key_node *current = NULL;
+    while (ptr != NULL) {
+        current = ptr;
+        ptr = ptr->next;
+        free(current);
+    }
+    head = NULL;
+}
+
 int main(int argc, char **argv)
 {
     int rtt_tracker = open_bpf_map("/sys/fs/bpf/tc/globals/rtt_tracker");
     dump(rtt_tracker);
     recycle(rtt_tracker);
     close(rtt_tracker);
+    free_memory();
 }

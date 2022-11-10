@@ -35,6 +35,8 @@ I'm not trying to save the world, just help the projects I'm directly involved i
 
 ## Usage
 
+> If you want to use the "known IP feature", you **must** enable a default mapping. For example: `xdp-cpumap-tc/src/xdp_iphash_to_cpu_cmdline --add --ip ::/0 --cpu 0 --classid 1:2` will map all unknown IP addresses to queue 1:2.
+
 1. Setup as normal for `xdp-cpumap-tc`. This is baked into LibreQoS and BracketQoS.
 2. Once running, you can run `src/xdp_pping` at any time to see current performance statistics in JSON format.
 
@@ -42,7 +44,7 @@ For example:
 
 ```json
 [
-{"tc":"1:5", "avg": 2.64, "min": 0.38, "max": 2.39, "median": 2.03, "samples": 12, "localIp": "100.64.1.3"},
+{"tc":"1:5", "avg": 2.64, "min": 0.38, "max": 2.39, "median": 2.03, "samples": 12, "localIp": "100.64.1.3", "known": true},
 {}]
 ```
 
@@ -55,6 +57,7 @@ The fields are:
 * `median`: the median of the tracked RTT times, in ms. Generally preferable because it ignores outliers.
 * `samples`: the number of samples collected since the last execution.
 * `localIp` : the local (TC mapped) IP address of the target.
+* `known` : does the `localIp` appear in the IP address trie (including v4/v6 and subnet lookups), and NOT map to a default?
 
 These are collected on a rolling 60-second ringbuffer, and represent the most recent results.
 

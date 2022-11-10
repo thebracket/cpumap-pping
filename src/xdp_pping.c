@@ -11,6 +11,7 @@ See LICENSE file for details.
 #include <errno.h>
 #include <arpa/inet.h>
 #include "tc_classify_kern_pping_common.h"
+#include "common_kern_user.h"
 
 // Very primitive linked list
 struct key_node {
@@ -57,7 +58,36 @@ void print_ipv4or6(struct in6_addr *ip) {
     printf("%s", ip_txt);
 }
 
-void dump(int fd) {
+__u32 find_default(int ip_hash) {
+    struct ip_hash_key key;
+    key.prefixlen = 128;
+    memset(&key.address, 0, sizeof(struct in6_addr));
+    struct ip_hash_info result;
+    if (bpf_map_lookup_elem(ip_hash, &key, &result) > -1) {
+        return result.tc_handle;
+    } else {
+        fprintf(stderr, "Warning: default route not installed. Install a handler for ::/0 to find unknown IPs.\n");
+        return 0;
+    }
+}
+
+bool is_known_ip(int ip_hash, struct in6_addr *ip, __u32 default_handle) {
+    struct ip_hash_key key;
+    key.prefixlen = 128;
+    memcpy(&key.address, ip, sizeof(struct in6_addr));
+    struct ip_hash_info result;
+    if (bpf_map_lookup_elem(ip_hash, &key, &result) > -1) {
+        if (result.tc_handle == default_handle) {
+            return false;
+        }
+        return true;
+    } else {
+        return false;
+    }
+}
+
+void dump(int fd, int ip_hash) {
+    __u32 default_handle = find_default(ip_hash);
     __u32 key;
     __u32 *prev_key = NULL;
 	struct rotating_performance perf;
@@ -99,6 +129,12 @@ void dump(int fd) {
                 printf(", \"localIp\": \"");
                 print_ipv4or6(&perf.local_address);
                 printf("\"");
+                bool known_ip = is_known_ip(ip_hash, &perf.local_address, default_handle);
+                if (known_ip) {
+                    printf(", \"known\": true");
+                } else {
+                    printf(", \"known\": false");
+                }
                 printf("},\n");
             }
         }
@@ -138,8 +174,10 @@ void free_memory() {
 int main(int argc, char **argv)
 {
     int rtt_tracker = open_bpf_map("/sys/fs/bpf/tc/globals/rtt_tracker");
-    dump(rtt_tracker);
+    int ip_hash = open_bpf_map("/sys/fs/bpf/tc/globals/map_ip_hash");
+    dump(rtt_tracker, ip_hash);
     recycle(rtt_tracker);
     close(rtt_tracker);
+    close(ip_hash);
     free_memory();
 }

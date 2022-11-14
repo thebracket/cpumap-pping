@@ -78,6 +78,7 @@ struct parsing_context
     __be16 protocol;
     struct tcphdr *tcp;
     __u32 tc_handle;
+    __u64 now;
 };
 
 /* Event type recorded for a packet flow */
@@ -179,7 +180,7 @@ struct
 
 struct
 {
-    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, __u32); // Keyed to the TC handle
     __type(value, struct rotating_performance);
     __uint(max_entries, IP_HASH_ENTRIES_MAX);
@@ -374,7 +375,7 @@ static __always_inline int parse_tcp_identifier(struct parsing_context *context,
 /* This is a bit of a hackjob from the original */
 static __always_inline int parse_packet_identifier(struct parsing_context *context, struct packet_info *p_info)
 {
-    p_info->time = bpf_ktime_get_ns();
+    p_info->time = context->now;
     if (context->protocol == ETH_P_IP)
     {
         p_info->pid.flow.ipv = AF_INET;
@@ -645,6 +646,7 @@ static __always_inline void pping_match_packet(struct flow_state *f_state,
     __u32 next_entry = perf->next_entry;
     if (next_entry < MAX_PERF_SECONDS) {
         __sync_fetch_and_add(&perf->rtt[next_entry], rtt);
+        perf->has_fresh_data = 1;
     }
 }
 
@@ -708,6 +710,7 @@ static __always_inline void tc_pping_start(struct parsing_context *context)
 {
     // Check to see if we can store perf info. Bail if we've hit the limit.
     // Copying occurs because otherwise the validator complains.
+    context->now = bpf_ktime_get_ns();
     __u32 active_tc_handle = context->tc_handle;
     #ifdef INSTRUMENT
     debug_handle(active_tc_handle);
@@ -716,6 +719,15 @@ static __always_inline void tc_pping_start(struct parsing_context *context)
     if (perf) {
         if (perf->next_entry >= MAX_PERF_SECONDS-1) {
             //bpf_debug("Flow has max samples. Not sampling further until next reset.");
+            if (context->now > perf->recycle_time) {
+                // If the time-to-live for the sample is exceeded, recycle it to be
+                // usable again.
+                //bpf_debug("Recycling flow, %u > %u", context->now, perf->recycle_time);
+                __builtin_memset(perf->rtt, 0, sizeof(__u32) * MAX_PERF_SECONDS);
+                perf->recycle_time = context->now + NS_PER_30_SECONDS;
+                perf->next_entry = 0;
+                perf->has_fresh_data = 0;
+            }
             return;
         }
     }
@@ -760,6 +772,8 @@ static __always_inline void tc_pping_start(struct parsing_context *context)
     {
         struct rotating_performance new_perf = {0};
         new_perf.tc_handle = active_tc_handle;
+        new_perf.recycle_time = context->now + NS_PER_30_SECONDS;
+        new_perf.has_fresh_data = 0;
         if (bpf_map_update_elem(&rtt_tracker, &active_tc_handle, &new_perf, BPF_NOEXIST) != 0) return;
     }
 

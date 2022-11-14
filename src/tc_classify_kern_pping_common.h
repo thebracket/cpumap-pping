@@ -20,6 +20,8 @@ My modifications are Copyright 2022, Herbert Wolverson
 #define MAX_PERF_SECONDS 60
 #define NS_PER_MS 1000000UL
 #define NS_PER_MS_TIMES_100 10000UL
+#define NS_PER_SECOND NS_PER_MS 1000000000UL
+#define NS_PER_30_SECONDS 30000000000UL
 
 /* Quick way to access a TC handle as either two 16-bit numbers or a single u32 */
 union tc_handle_type
@@ -71,6 +73,8 @@ struct rotating_performance
     __u32 tc_handle;
     __u32 rtt[MAX_PERF_SECONDS];
     __u32 next_entry;
+    __u64 recycle_time;
+    __u32 has_fresh_data;
 };
 
 #endif /* __TC_CLASSIFY_KERN_PPING_COMMON_H */

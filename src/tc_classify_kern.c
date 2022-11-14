@@ -321,6 +321,7 @@ int tc_iphash_to_cpu(struct __sk_buff *skb)
 	context.data = (void *)(long)skb->data;
 	context.protocol = 0;
 	context.l3_offset = 0;
+	context.now = 0;
 	//__u32 ipv4 = bpf_ntohl(0xFFFFFFFF); // default not found
 	struct ip_hash_key hash_key;
 

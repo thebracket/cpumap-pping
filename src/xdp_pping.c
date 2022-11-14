@@ -11,6 +11,7 @@ See LICENSE file for details.
 #include <errno.h>
 #include <linux/in.h>
 #include <linux/in6.h>
+#include <time.h>
 #include "tc_classify_kern_pping_common.h"
 
 int open_bpf_map(const char *file)
@@ -41,35 +42,37 @@ void dump(int fd) {
     __u32 rtt[MAX_PERF_SECONDS];
 	while ((err = bpf_map_get_next_key(fd, prev_key, &key)) == 0) {
         bpf_map_lookup_elem(fd, &key, &perf);
-        // Work on a local copy and sort it to help with obtaining the median
-        memcpy(&rtt, &perf.rtt, MAX_PERF_SECONDS * sizeof(__u32));
-        qsort(&rtt, MAX_PERF_SECONDS, sizeof(__u32), compare);
-        union tc_handle_type handle;
-        handle.handle = perf.tc_handle;
-        float total = 0;
-        int n = 0;
-        float min = 1000000.0;
-        float max = 0.0;
-        for (int i=0; i<perf.next_entry; ++i) {
-            if (rtt[i] != 0) {
-                float this_reading = (float)rtt[i]/100.0f;
-                total += this_reading;
-                n++;
-                if (rtt[i] < min) min = this_reading;
-                if (rtt[i] > max) max = this_reading;
+        if (perf.has_fresh_data > 0) {
+            // Work on a local copy and sort it to help with obtaining the median
+            memcpy(&rtt, &perf.rtt, MAX_PERF_SECONDS * sizeof(__u32));
+            qsort(&rtt, MAX_PERF_SECONDS, sizeof(__u32), compare);
+            union tc_handle_type handle;
+            handle.handle = perf.tc_handle;
+            float total = 0;
+            int n = 0;
+            float min = 1000000.0;
+            float max = 0.0;
+            for (int i=0; i<perf.next_entry; ++i) {
+                if (rtt[i] != 0) {
+                    float this_reading = (float)rtt[i]/100.0f;
+                    total += this_reading;
+                    n++;
+                    if (rtt[i] < min) min = this_reading;
+                    if (rtt[i] > max) max = this_reading;
+                }
             }
-        }
-        float median = (float)rtt[(perf.next_entry - n) + MAX_PERF_SECONDS/2]/100.0;
-        //printf("Next element: %d\n", perf.next_entry);
-        if (n > 0) {
-            printf("{");
-            printf("\"tc\":\"%u:%u\"", handle.majmin[1], handle.majmin[0]);
-            printf(", \"avg\": %.2f", total / (float)n);
-            printf(", \"min\": %.2f", min);
-            printf(", \"max\": %.2f", max);
-            printf(", \"median\": %.2f", median);
-            printf(", \"samples\": %d", n);
-            printf("},\n");
+            float median = (float)rtt[(perf.next_entry - n) + MAX_PERF_SECONDS/2]/100.0;
+            //printf("Next element: %d\n", perf.next_entry);
+            if (n > 0) {
+                printf("{");
+                printf("\"tc\":\"%u:%u\"", handle.majmin[1], handle.majmin[0]);
+                printf(", \"avg\": %.2f", total / (float)n);
+                printf(", \"min\": %.2f", min);
+                printf(", \"max\": %.2f", max);
+                printf(", \"median\": %.2f", median);
+                printf(", \"samples\": %d", n);
+                printf("},\n");
+            }
         }
 		prev_key = &key;
 		i++;
@@ -77,22 +80,9 @@ void dump(int fd) {
     printf("{}]\n");
 }
 
-
-/* Dumps all current RTT feeds in JSON format */
-void cleanup_rtt(int fd) {
-    int err;
-    union tc_handle_type key;
-    union tc_handle_type *prev_key = NULL;
-    while ((err = bpf_map_get_next_key(fd, prev_key, &key)) == 0) {
-        bpf_map_delete_elem(fd, &key);
-    }
-}
-
 int main(int argc, char **argv)
 {
     int rtt_tracker = open_bpf_map("/sys/fs/bpf/tc/globals/rtt_tracker");
     dump(rtt_tracker);
-    cleanup_rtt(rtt_tracker);
-
     close(rtt_tracker);
 }
